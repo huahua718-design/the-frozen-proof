@@ -8,7 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-    <script async src="https://docs.opencv.org/4.5.4/opencv.js" id="opencv-js"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.5.4/opencv.js" id="opencv-js" defer></script>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;500;700&display=swap" rel="stylesheet">
@@ -19,15 +20,12 @@
         body { font-family: 'Urbanist', sans-serif; background-color: var(--bg); color: #fff; margin: 0; overflow: hidden; height: 100vh; touch-action: none; user-select: none; -webkit-user-select: none; }
         html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
 
-        /* 拍照按鈕與互動層 */
+        /* 互動點擊層 */
         #interactive-click-layer { position: fixed; inset: 0; z-index: 50; background: transparent; cursor: pointer; }
-
         .btn-magic { background: rgba(0,0,0,0.6); border: 2px solid var(--accent); color: var(--accent); padding: 14px 28px; border-radius: 50px; font-weight: 500; backdrop-filter: blur(5px); box-shadow: 0 0 20px rgba(222, 255, 154, 0.2); }
 
-        #camera-view { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; transform: scaleX(-1); /* 自拍預設鏡像 */ }
+        #camera-view { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; transform: scaleX(-1); }
         #photo-canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 30; display: none; }
-        
-        /* 科技追蹤框 (OpenCV 即時算出的綠色對齊線) */
         #tracker-canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 20; pointer-events: none; transform: scaleX(-1); }
 
         /* 盲操觸控與 UI 層 */
@@ -88,20 +86,16 @@
 
     const EDGE = { LEFT: 0, TOP: 1, RIGHT: 2, BOTTOM: 3 };
     let strokes = [];
-    let openCvReady = false;
-    let trackedPoints = null; // 暫存 OpenCV 即時算出的 4 個紙牌頂點
+    let trackedPoints = null;
 
-    document.getElementById('opencv-js').addEventListener('load', () => {
-        openCvReady = true;
-    });
-
-    window.onload = () => {
+    // 修正點 2：改用 DOMContentLoaded，網頁結構好了「立刻秒開」UI，絕不卡死黑屏
+    document.addEventListener('DOMContentLoaded', () => {
         if (isMaster) {
             setupMasterMode();
         } else {
             setupViewerMode(currentRoom);
         }
-    };
+    });
 
     /** [2] 魔術師控制端邏輯 (雙劃盲操) **/
     function setupMasterMode() {
@@ -186,13 +180,12 @@
     const photoCanvas = document.getElementById('photo-canvas');
     const clickLayer = document.getElementById('interactive-click-layer');
     let localCapturedRawBase64 = null;
-    let finalFreezePoints = null; // 拍照瞬間凍結的卡牌四角座標
+    let finalFreezePoints = null;
     let isMagicExecuted = false;
 
     async function setupViewerMode(roomId) {
-        clickLayer.style.display = 'block'; // 顯示可點擊層
+        clickLayer.style.display = 'block'; // 確保拍照按鈕層立刻看得到
         try {
-            // 自拍情境：優先使用前置鏡頭 (user)
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, 
                 audio: false 
@@ -200,8 +193,8 @@
             video.srcObject = stream;
             video.onloadedmetadata = () => {
                 video.play();
-                // 啟動 OpenCV 即時影像追蹤迴圈
-                setTimeout(processVideoFrame, 1000);
+                // 啟動影像迴圈
+                setTimeout(processVideoFrame, 500);
             };
         } catch (err) {
             alert("請允許開啟相機權限以進行心靈顯影。");
@@ -215,7 +208,6 @@
             }
         });
 
-        // 修正點：直接將點擊事件綁在全螢幕覆蓋層，點擊任意處都能拍照
         clickLayer.onclick = (e) => {
             e.preventDefault();
             if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
@@ -223,9 +215,14 @@
         };
     }
 
-    // OpenCV 核心演算法：適應手指輕微抓持、非完美四邊形的白牌提取
     function processVideoFrame() {
-        if (!openCvReady || video.paused || video.ended) {
+        if (video.paused || video.ended) {
+            requestAnimationFrame(processVideoFrame);
+            return;
+        }
+
+        // 修正點 3：嚴格防禦偵測。如果 OpenCV 庫尚未完全在瀏覽器端初始化好，先不執行計算，但「絕不報錯卡死」
+        if (typeof cv === 'undefined' || !cv.imread || !cv.Mat) {
             requestAnimationFrame(processVideoFrame);
             return;
         }
@@ -240,8 +237,6 @@
         trackerCanvas.width = width;
         trackerCanvas.height = height;
         const tCtx = trackerCanvas.getContext('2d');
-
-        // 將當前視訊幀繪製入內部臨時畫布供 OpenCV 讀取
         tCtx.drawImage(video, 0, 0, width, height);
         
         try {
@@ -249,14 +244,10 @@
             let dst = new cv.Mat();
             let gray = new cv.Mat();
             
-            // 1. 轉為灰階並進行高斯模糊消除環境雜訊
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
             cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-            
-            // 2. 自適應二值化 (提取畫面中高亮度的白牌區塊)
             cv.adaptiveThreshold(gray, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
             
-            // 3. 尋找輪廓
             let contours = new cv.MatVector();
             let hierarchy = new cv.Mat();
             cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -264,39 +255,32 @@
             let maxArea = 0;
             let maxContourIdx = -1;
             
-            // 找出畫面中符合卡牌大小比例的最大亮色區塊
             for (let i = 0; i < contours.size(); ++i) {
                 let cnt = contours.get(i);
                 let area = cv.contourArea(cnt);
-                if (area > maxArea && area > (width * height * 0.03)) { // 至少佔畫面 3% 以上
+                if (area > maxArea && area > (width * height * 0.03)) {
                     maxArea = area;
                     maxContourIdx = i;
                 }
             }
 
-            // 重新清空畫布，準備繪製綠色對齊特效
             tCtx.clearRect(0, 0, width, height);
 
             if (maxContourIdx !== -1) {
                 let bestContour = contours.get(maxContourIdx);
-                
-                // 使用凸包演算法 (Convex Hull) 移除觀眾手指凹陷進去的雜訊
                 let hull = new cv.Mat();
                 cv.convexHull(bestContour, hull, false, true);
                 
-                // 將凸多邊形進行逼近，強行推算出最接近的外圍四個角落
                 let approx = new cv.Mat();
                 let peri = cv.arcLength(hull, true);
                 cv.approxPolyDP(hull, approx, 0.04 * peri, true);
                 
                 if (approx.rows === 4) {
-                    // 成功抓取到 4 個排除手指干擾後的卡牌頂點！
                     let pts = [];
                     for (let j = 0; j < 4; j++) {
                         pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] });
                     }
                     
-                    // 將頂點排序：左上、右上、右下、左下
                     pts.sort((a, b) => a.x - b.x);
                     let leftSide = [pts[0], pts[1]].sort((a, b) => a.y - b.y);
                     let rightSide = [pts[2], pts[3]].sort((a, b) => a.y - b.y);
@@ -306,7 +290,6 @@
                         tr: rightSide[0], br: rightSide[1]
                     };
 
-                    // 畫出極具科技感的綠色光軌追蹤框線，提示觀眾連線成功
                     tCtx.strokeStyle = "#deff9a";
                     tCtx.lineWidth = 4;
                     tCtx.shadowBlur = 15;
@@ -323,38 +306,35 @@
             }
             src.delete(); dst.delete(); gray.delete(); contours.delete(); hierarchy.delete();
         } catch (e) {
-            // 捕捉 OpenCV 初始化尚未完全時的異常
+            // 靜態捕捉異常
         }
 
         requestAnimationFrame(processVideoFrame);
     }
 
     function executeCameraCapture() {
-        // 拍照瞬間，立刻拷貝 OpenCV 當下計算出來的頂點座標，進行凍結
         if (trackedPoints) {
             finalFreezePoints = JSON.parse(JSON.stringify(trackedPoints));
         } else {
-            // 防呆：萬一環境太黑暗完全抓不到，給予一組畫面中央的標準透視座標
-            const w = video.videoWidth, h = video.videoHeight;
+            const w = video.videoWidth || window.innerWidth;
+            const h = video.videoHeight || window.innerHeight;
             finalFreezePoints = {
                 tl: { x: w*0.3, y: h*0.2 }, tr: { x: w*0.7, y: h*0.2 },
                 br: { x: w*0.7, y: h*0.8 }, bl: { x: w*0.3, y: h*0.8 }
             };
         }
 
-        photoCanvas.width = video.videoWidth;
-        photoCanvas.height = video.videoHeight;
+        photoCanvas.width = video.videoWidth || window.innerWidth;
+        photoCanvas.height = video.videoHeight || window.innerHeight;
         const ctx = photoCanvas.getContext('2d');
         
-        // 將相機當前畫面定格繪製在最上層畫布上（為了符合前置鏡頭習慣，水平鏡像翻轉儲存）
         ctx.translate(photoCanvas.width, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, photoCanvas.width, photoCanvas.height);
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // 重設畫布矩陣
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
 
         localCapturedRawBase64 = photoCanvas.toDataURL('image/jpeg', 0.95);
         
-        // 徹底關閉並隱藏所有動態元素與覆蓋層
         photoCanvas.style.display = 'block';
         video.style.display = 'none';
         trackerCanvas.style.display = 'none';
@@ -373,36 +353,26 @@
         
         bgImg.onload = () => {
             const cardImg = new Image();
-            // 對接本地目錄路徑 `./cards/xxx_xxx.png`
             cardImg.src = `./cards/${cardName}.png`; 
             
             cardImg.onload = () => {
                 let opacity = 0;
-                
-                // 緩慢顯影動畫
                 const animateRendering = () => {
-                    opacity += 0.003; // 控制顯影時長
+                    opacity += 0.003; 
                     
                     ctx.clearRect(0, 0, photoCanvas.width, photoCanvas.height);
-                    // 1. 重新繪製底部包含觀眾手部、臉部的真實背景照片
                     ctx.drawImage(bgImg, 0, 0);
                     
-                    // 2. 利用凍結的 4 個頂點，精準計算撲克牌的透視扭曲與貼合
                     ctx.save();
-                    
-                    // 設定正片疊底：讓虛擬牌面完美融合進原白牌的陰影下，並隱形於觀眾的手指表面
                     ctx.globalCompositeOperation = 'multiply';
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 呼叫高階 3D 空間透視變換變形矩陣繪圖器
                     drawTransformedImage(ctx, cardImg, finalFreezePoints);
-                    
                     ctx.restore();
 
                     if (opacity < 1) {
                         requestAnimationFrame(animateRendering);
                     } else {
-                        // 轉換為原生 img 標籤供長按儲存
                         const finalDataURL = photoCanvas.toDataURL('image/jpeg', 0.95);
                         const nativeImg = document.createElement('img');
                         nativeImg.src = finalDataURL;
@@ -413,17 +383,57 @@
                 animateRendering();
             };
             
-            // 本地卡牌遺失的防穿幫機制
             cardImg.onerror = () => {
                 alert("顯影能量已注入，請長按螢幕保存心靈時空。");
             };
         };
     }
 
-    /** 🧮 仿 3D 透視射影幾何變換矩陣 (Homography) 畫布渲染器 **/
+    /** 🧮 仿 3D 透視射影幾何變換矩陣 **/
     function drawTransformedImage(ctx, img, pts) {
         const w = photoCanvas.width;
         const tl = { x: w - pts.tr.x, y: pts.tr.y };
         const tr = { x: w - pts.tl.x, y: pts.tl.y };
         const br = { x: w - pts.bl.x, y: pts.bl.y };
-        const bl = { x: w - pts.br.x, y:
+        const bl = { x: w - pts.br.x, y: pts.br.y };
+
+        function adj(m) {
+            return [
+                m[4]*m[8]-m[5]*m[7], m[2]*m[7]-m[1]*m[8], m[1]*m[5]-m[2]*m[4],
+                m[5]*m[6]-m[3]*m[8], m[0]*m[8]-m[2]*m[6], m[2]*m[3]-m[0]*m[5],
+                m[3]*m[7]-m[4]*m[6], m[1]*m[6]-m[0]*m[7], m[0]*m[4]-m[1]*m[3]
+            ];
+        }
+        function mult(a, b) {
+            let c = Array(9);
+            for (let i=0; i<3; i++) {
+                for (let j=0; j<3; j++) {
+                    let s = 0; for (let k=0; k<3; k++) s += a[i*3+k]*b[k*3+j];
+                    c[i*3+j] = s;
+                }
+            }
+            return c;
+        }
+        function getTransform(x0, y0, x1, y1, x2, y2, x3, y3) {
+            let w = img.width, h = img.height;
+            let t = [x0,y0,1, x1,y1,1, x2,y2,1];
+            let m = adj([0,0,1, w,0,1, 0,h,1]);
+            let res = mult(t, m);
+            return [res[0]/res[8], res[3]/res[8], res[1]/res[8], res[4]/res[8], res[2]/res[8], res[5]/res[8]];
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(tl.x, tl.y); ctx.lineTo(tr.x, tr.y); ctx.lineTo(br.x, br.y); ctx.lineTo(bl.x, bl.y);
+        ctx.closePath();
+        ctx.clip();
+
+        let xt = getTransform(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y, br.x, br.y);
+        ctx.transform(xt[0], xt[1], xt[2], xt[3], xt[4], xt[5]);
+        ctx.drawImage(img, 0, 0);
+        ctx.restore();
+    }
+</script>
+
+</body>
+</html>
