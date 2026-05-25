@@ -18,10 +18,6 @@
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
     
-    /* 鏡頭與 AR 畫布圖層基礎配置 */
-    .camera-layer { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-    .display-layer { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-
     /* 8秒緩慢漸顯融合動畫 */
     @keyframes magicRevealWipe {
       0% { filter: blur(12px) brightness(2); opacity: 0; }
@@ -72,7 +68,6 @@
       const forcedCardRef = useRef(null);
       const localStreamRef = useRef(null);
 
-      // 監聽魔術師發牌
       useEffect(() => {
         if (!isSpectator) return;
         const roomRef = db.ref('twatch_rooms/' + roomId);
@@ -80,7 +75,6 @@
           const data = snapshot.val();
           if (data && data.card) {
             forcedCardRef.current = data.card;
-            // 收到牌且當前處於相機追蹤狀態時，立刻切換至融合顯影
             if (phase === 'TRACKING') {
               setPhase('REVEALING');
               executeARFreezeAndSynthesis();
@@ -90,7 +84,6 @@
         return () => roomRef.off();
       }, [roomId, isSpectator, phase]);
 
-      // 啟動觀眾端前鏡頭
       const startCameraAndTracking = async () => {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -110,7 +103,6 @@
         }
       };
 
-      // OpenCV 精準中央追蹤核心
       useEffect(() => {
         if (!isTracking || phase !== 'TRACKING') return;
         let active = true;
@@ -162,8 +154,6 @@
               
               if (area > 10000 && area < (w * h * 0.6)) {
                 let rect = cv.boundingRect(cnt);
-                
-                // 🎯 核心固定瞄準框 ROI 鎖定過濾
                 let centerX = rect.x + rect.width / 2;
                 let centerY = rect.y + rect.height / 2;
                 
@@ -222,7 +212,6 @@
         return () => { active = false; };
       }, [isTracking, phase]);
 
-      // 結凍畫面並渲染 AR 投影
       const executeARFreezeAndSynthesis = () => {
         setIsTracking(false);
         const video = videoRef.current;
@@ -260,7 +249,7 @@
             drawPerspectiveCard(ctx, cardImg, targetPoints, w);
           };
         } else {
-          // 如果後台還沒給牌，手動點擊時給予一張備用預設卡（黑桃A）避免白屏
+          // 萬一魔術師沒發牌卻點了按鈕，給予一張預設黑桃A
           const backupImg = new Image();
           backupImg.src = "./cards/spade_1.png";
           backupImg.onload = () => {
@@ -376,72 +365,66 @@
       // --- 觀眾端渲染介面 ---
       if (isSpectator) {
         return (
-          <div className="w-screen h-screen bg-black flex items-center justify-center relative overflow-hidden" onPointerDown={handlePointerDown}>
+          <div className="w-screen h-screen bg-black overflow-hidden relative" onPointerDown={handlePointerDown}>
             
-            {/* 🚪 初始進入點圖層（最頂層 z-40） */}
+            {/* 【層級 100】進入按鈕：只在最一開始出現，確保絕對點得到 */}
             {phase === 'INIT' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black z-40">
-                <div className="text-white/40 text-sm border border-white/20 px-8 py-4 rounded-full animate-pulse cursor-pointer tracking-wider bg-zinc-900/50">
+              <div style={{ position: 'fixed', inset: 0, zIndex: 100 }} className="flex items-center justify-center bg-black">
+                <div className="text-white/40 text-sm border border-white/20 px-8 py-4 rounded-full animate-pulse tracking-wider bg-zinc-900/50">
                   進入心靈顯影空間 (點擊開啟鏡頭)
                 </div>
               </div>
             )}
             
-            {/* 📷 底層：鏡頭影像與 OpenCV 偵測畫布（底層分別為 z-0 與 z-10） */}
+            {/* 【層級 10】相機畫面：被嚴格限制在底層，不會蓋住 UI */}
             {(phase === 'TRACKING' || phase === 'REVEALING') && (
-              <video ref={videoRef} className="camera-layer z-0" playsInline muted></video>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 10 }}>
+                <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} playsInline muted></video>
+              </div>
             )}
+            
+            {/* 【層級 20】追蹤畫布：OpenCV 綠線渲染區 */}
             {phase === 'TRACKING' && (
-              <canvas ref={trackerCanvasRef} className="camera-layer z-10 pointer-events-none"></canvas>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
+                <canvas ref={trackerCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}></canvas>
+              </div>
             )}
 
-            {/* 🎯 頂層：核心 UI 面板（z-30 確保絕對壓在相機畫面之上！） */}
+            {/* 🎯 【層級 30】互動 UI 介面：強制浮在最上方！包含瞄準框與按鈕 */}
             {phase === 'TRACKING' && (
-              <div className="absolute inset-0 flex flex-col items-center justify-between py-12 z-30 pointer-events-none">
+              <div style={{ position: 'fixed', inset: 0, zIndex: 30, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 
-                {/* 上方狀態提示 */}
-                <div className="text-white/40 text-[10px] tracking-widest bg-black/50 backdrop-blur-sm px-4 py-1.5 rounded-full border border-white/10 shadow-lg">
-                  精神連結中...等候發牌召喚
+                {/* 瞄準框實體 */}
+                <div className="w-[65vw] max-w-[280px] aspect-[63/88] border-[3px] border-dashed border-[#deff9a] bg-black/20 rounded-xl flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+                  <span className="text-[#deff9a] text-sm tracking-widest font-bold shadow-black drop-shadow-md">將白牌放入框內</span>
                 </div>
 
-                {/* 中央靜態高質感撲克牌瞄準引導框 */}
-                <div className="w-[62vw] max-w-[260px] aspect-[63/88] border-2 border-dashed border-[#deff9a]/40 bg-black/20 backdrop-blur-[0.5px] rounded-2xl flex flex-col items-center justify-center relative animate-pulse shadow-[0_0_30px_rgba(0,0,0,0.6)]">
-                  {/* 精美四角定位高光 */}
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#deff9a]"></div>
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#deff9a]"></div>
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#deff9a]"></div>
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-[#deff9a]"></div>
-                  
-                  <span className="text-[#deff9a]/60 text-xs tracking-[0.2em] font-medium text-center px-4">
-                    請將白牌放入框內
-                  </span>
-                </div>
-
-                {/* 🔘 下方「手動強制觸發按鈕 / 拍照鍵」 */}
-                <div className="flex flex-col items-center gap-2">
+                {/* 拍照按鈕 (強制啟用指標事件 pointEvents: 'auto') */}
+                <div style={{ position: 'absolute', bottom: '40px', pointerEvents: 'auto' }} className="flex flex-col items-center">
                   <button 
                     onClick={(e) => {
-                      e.stopPropagation(); // 防止冒泡
+                      e.stopPropagation(); // 防止干擾背景點擊
                       if (phase === 'TRACKING') {
                         setPhase('REVEALING');
                         executeARFreezeAndSynthesis();
                       }
                     }}
-                    className="pointer-events-auto active:scale-95 transition-transform w-16 h-16 rounded-full border-4 border-white/40 bg-zinc-900/80 backdrop-blur-md flex items-center justify-center shadow-[0_4px_20px_rgba(0,0,0,0.5)] focus:outline-none"
-                    title="強制顯影"
+                    className="w-[72px] h-[72px] rounded-full border-4 border-white bg-black/60 flex items-center justify-center active:scale-90 transition-transform shadow-2xl"
                   >
-                    <div className="w-10 h-10 rounded-full bg-red-600 animate-pulse"></div>
+                    <div className="w-[46px] h-[46px] bg-red-600 rounded-full animate-pulse"></div>
                   </button>
-                  <span className="text-white/20 text-[9px] tracking-widest">手動強製顯影鍵</span>
+                  <span className="text-white/60 text-xs tracking-widest mt-3 drop-shadow-md font-bold">手動拍照鎖定</span>
                 </div>
-
               </div>
             )}
 
-            {/* 🔮 終極圖層：AR 結凍與融合顯影覆蓋層（最高層 z-50） */}
+            {/* 【層級 40】合成結果：凍結畫面與魔法漸顯 */}
             {(phase === 'REVEALING') && (
-              <canvas ref={renderCanvasRef} className="display-layer z-50 animate-magic-reveal"></canvas>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 40 }}>
+                <canvas ref={renderCanvasRef} className="animate-magic-reveal" style={{ width: '100%', height: '100%', objectFit: 'cover' }}></canvas>
+              </div>
             )}
+            
           </div>
         );
       }
