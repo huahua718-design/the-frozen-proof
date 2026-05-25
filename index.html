@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>The Frozen Proof - 時空留痕 (本地圖庫版)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        :root { --accent: #deff9a; --bg: #000; }
+        body { font-family: 'Urbanist', sans-serif; background-color: var(--bg); color: #fff; margin: 0; overflow: hidden; height: 100vh; }
+        
+        /* 鎖定視窗，避免 iOS 瀏覽器橡皮筋回彈干擾手勢 */
+        html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
+
+        /* 魔術按鈕樣式 */
+        .btn-magic { background: rgba(255,255,255,0.05); border: 1px solid var(--accent); color: var(--accent); padding: 14px 28px; border-radius: 50px; font-weight: 500; transition: all 0.3s; }
+        .btn-magic:active { transform: scale(0.95); background: var(--accent); color: #000; }
+
+        /* 全螢幕相機預覽 */
+        #camera-view { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; }
+
+        /* 科技感瞄準框 UI */
+        .viewfinder { 
+            position: fixed; inset: 0; z-index: 20; 
+            border: 40px solid rgba(0,0,0,0.6); 
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: none; transition: opacity 0.5s;
+        }
+        .viewfinder-box {
+            width: 65vw; height: 91vw; max-width: 280px; max-height: 392px;
+            border: 2px solid var(--accent); border-radius: 16px;
+            box-shadow: 0 0 30px rgba(222, 255, 154, 0.25);
+            position: relative;
+        }
+        .viewfinder-box::after {
+            content: 'LOCKING TIME...'; position: absolute; top: -35px; left: 0; right: 0;
+            text-align: center; color: var(--accent); font-size: 11px; letter-spacing: 4px;
+            animation: pulse 1.8s infinite;
+        }
+
+        /* 靜態照片渲染畫布 */
+        #photo-canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 30; display: none; }
+        
+        /* 魔術師全螢幕隱形觸控手勢層 */
+        #gesture-zone { position: fixed; inset: 0; z-index: 100; display: none; background: rgba(0,0,0,0.01); }
+
+        /* 魔術師大廳 UI */
+        #master-ui { 
+            position: fixed; inset: 0; z-index: 110; 
+            background: #000; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; padding: 40px; text-align: center;
+        }
+
+        @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+        /* 發送成功狀態提示 */
+        .toast {
+            position: fixed; bottom: 50px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.85); border: 1px solid var(--accent); color: var(--accent);
+            padding: 12px 24px; border-radius: 50px; z-index: 200; pointer-events: none;
+            opacity: 0; transition: opacity 0.3s; font-size: 14px; letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+<video id="camera-view" autoplay playsinline muted></video>
+
+<div id="viewer-ui" class="viewfinder" style="display:none;">
+    <div class="viewfinder-box"></div>
+    <div class="fixed bottom-24 left-0 right-0 flex justify-center pointer-events-auto">
+        <button id="capture-btn" class="btn-magic text-lg px-10 shadow-lg">
+            <i class="fa-solid fa-camera mr-2"></i> 拍下時空定格
+        </button>
+    </div>
+</div>
+
+<canvas id="photo-canvas"></canvas>
+
+<div id="master-ui" style="display:none;">
+    <div class="mb-8">
+        <h2 class="text-3xl font-bold mb-2">ROOM: <span id="room-id-display" class="text-accent tracking-wider">----</span></h2>
+        <p class="text-white/50 text-sm">請引導觀眾掃描下方條碼連線</p>
+    </div>
+    <div id="qrcode-container" class="bg-white p-5 rounded-3xl mb-8 shadow-2xl">
+        <img id="qrcode-img" src="" alt="QR Code" class="w-60 h-60">
+    </div>
+    <p class="animate-pulse text-accent/80 text-sm tracking-wide">雙擊螢幕：隱藏此畫面 / 開始盲操輸入</p>
+</div>
+
+<div id="gesture-zone"></div>
+
+<div id="toast" class="toast"><i class="fa-solid fa-wifi mr-2"></i>思想密碼已同步</div>
+
+<script>
+    /** [1] FIREBASE 環境設定
+     * 已填妥您專案的亞洲節點，其餘金鑰已更換為您專案專屬的正確數值
+     */
+    const firebaseConfig = {
+        apiKey: "AIzaSyCjTKS43McbUswz3afjcQpPjamhoMb-X9c",
+        authDomain: "magic-card-app-2f24f.firebaseapp.com",
+        databaseURL: "https://magic-card-app-2f24f-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "magic-card-app-2f24f",
+        storageBucket: "magic-card-app-2f24f.firebasestorage.app",
+        messagingSenderId: "900697689478",
+        appId: "1:900697689478:web:38a5aba747e96a7fcb3007"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    /** [2] 系統路由與變數定義 **/
+    const urlParams = new URLSearchParams(window.location.search);
+    const mode = urlParams.get('mode'); 
+    const roomFromUrl = urlParams.get('room');
+    let currentRoom = roomFromUrl || "";
+    let isMaster = (mode === 'master');
+
+    const EDGE = { LEFT: 0, TOP: 1, RIGHT: 2, BOTTOM: 3 };
+    let strokes = [];
+
+    window.onload = () => {
+        if (isMaster) {
+            setupMasterMode();
+        } else if (currentRoom) {
+            setupViewerMode(currentRoom);
+        } else {
+            document.body.innerHTML = `<div class="flex h-screen items-center justify-center p-6 text-center text-white/70">
+                <div><i class="fa-solid fa-triangle-exclamation text-4xl text-accent mb-4"></i><br>請使用魔術師生成的 QR Code 掃描開局</div>
+            </div>`;
+        }
+    };
+
+    /** [3] 魔術師控制端邏輯 (Master) **/
+    function setupMasterMode() {
+        document.getElementById('master-ui').style.display = 'flex';
+        document.getElementById('gesture-zone').style.display = 'block';
+        
+        // 使用您原設定的 9527 固定房號或您喜歡的隨機房號（此處改回固定房號以搭配您的系統習慣）
+        currentRoom = "9527";
+        document.getElementById('room-id-display').innerText = currentRoom;
+
+        // 生成帶房號參數的觀眾端連線 URL
+        const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
+        document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
+
+        // 雙擊主畫面：隱藏/顯示 UI 控制台，或者快速發送 JOKER
+        window.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            const ui = document.getElementById('master-ui');
+            if (ui.style.display === 'flex') {
+                ui.style.display = 'none';
+            } else {
+                // 如果目前在盲操狀態，雙擊可當作快速輸入鬼牌的緊急備份
+                sendPayloadToFirebase("joker_black");
+            }
+        });
+
+        initGestureEngine();
+    }
+
+    // 初始化雙筆劃盲操感應器
+    function initGestureEngine() {
+        const zone = document.getElementById('gesture-zone');
+        let startX, startY;
+
+        zone.addEventListener('touchstart', (e) => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+
+        zone.addEventListener('touchend', (e) => {
+            const endX = e.changedTouches[0].clientX;
+            const endY = e.changedTouches[0].clientY;
+            
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            // 滑動距離大於 30 像素才判定為有效筆劃
+            if (dist > 30) {
+                const edge = calculateEdgeQuadrant(startX, startY);
+                const dir = calculateStrokeDirection(edge, dx, dy);
+                
+                strokes.push({ edge, dir });
+                
+                if (strokes.length === 2) {
+                    decodeAndSendMagic(strokes);
+                    strokes = []; // 清空等待下次輸入
+                }
+            }
+        }, { passive: true });
+    }
+
+    function calculateEdgeQuadrant(x, y) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        if (x < w * 0.3) return EDGE.LEFT;
+        if (y < h * 0.3) return EDGE.TOP;
+        if (x > w * 0.7) return EDGE.RIGHT;
+        return EDGE.BOTTOM;
+    }
+
+    function calculateStrokeDirection(edge, dx, dy) {
+        if (edge === EDGE.LEFT) return dy < 0 ? 1 : -1;    // 上滑為正，下滑為負
+        if (edge === EDGE.TOP) return dx > 0 ? 1 : -1;     // 右滑為正，左滑為負
+        if (edge === EDGE.RIGHT) return dy > 0 ? 1 : -1;   // 下滑為正，上滑為負
+        if (edge === EDGE.BOTTOM) return dx < 0 ? 1 : -1;  // 左滑為正，右滑為負
+        return 1;
+    }
+
+    function decodeAndSendMagic(s) {
+        let suitIdx = s[0].edge; // 左0梅, 上1方, 右2紅, 下3黑
+        let isSecondHalf = (s[0].dir === -1); // 正向為前半段(2-7)，反向為後半段(8-K)
+        
+        let cardValueOffset = 0;
+        
+        if (s[1].edge === s[0].edge) {
+            cardValueOffset = 12; // 同邊緣滑動：直接鎖定為「 A 」
+        } else {
+            const relQuadrant = (s[1].edge - s[0].edge + 4) % 4; // 計算相對象限距離
+            cardValueOffset = (isSecondHalf ? 6 : 0) + (relQuadrant - 1) * 2 + (s[1].dir === 1 ? 0 : 1);
+        }
+        
+        const cardCode = generateCardCode(suitIdx, cardValueOffset);
+        sendPayloadToFirebase(cardCode);
+    }
+
+    // 🌟 輸出的代碼完美吻合您的本地圖庫：例如 club_1, spade_jack, heart_queen
+    function generateCardCode(suit, valueIdx) {
+        const suits = ['club', 'diamond', 'heart', 'spade'];
+        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king', '1'];
+        return `${suits[suit]}_${values[valueIdx]}`;
+    }
+
+    function sendPayloadToFirebase(cardName) {
+        db.ref(`twatch_rooms/${currentRoom}`).update({
+            forcedCard: cardName,
+            timestamp: Date.now()
+        }).then(() => triggerToast());
+    }
+
+    function triggerToast() {
+        const t = document.getElementById('toast');
+        t.style.opacity = '1';
+        setTimeout(() => t.style.opacity = '0', 1500);
+    }
+
+
+    /** [4] 觀眾端相機與靜態圖像合成邏輯 (Viewer) **/
+    const video = document.getElementById('camera-view');
+    const canvas = document.getElementById('photo-canvas');
+    const captureBtn = document.getElementById('capture-btn');
+    let localCapturedRawBase64 = null;
+    let isMagicExecuted = false;
+
+    async function setupViewerMode(roomId) {
+        document.getElementById('viewer-ui').style.display = 'flex';
+        
+        // 啟動後置相機鏡頭
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, 
+                audio: false 
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            alert("請允許網頁相機存取權限，否則無法與心靈感應連線。");
+        }
+
+        // 開始實時監聽您專屬的 twatch_rooms 資料庫
+        db.ref(`twatch_rooms/${roomId}`).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.forcedCard && localCapturedRawBase64 && !isMagicExecuted) {
+                isMagicExecuted = true;
+                executeVisualSynthesis(data.forcedCard);
+            }
+        });
+
+        captureBtn.onclick = () => {
+            if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
+            executeCameraCapture();
+        };
+    }
+
+    function executeCameraCapture() {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        
+        // 將當前視訊畫面完整繪製到畫布上
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
+        
+        // 畫面切換：關閉視訊流、切換為靜態 Canvas 顯示
+        canvas.style.display = 'block';
+        video.style.display = 'none';
+        document.getElementById('viewer-ui').style.opacity = '0';
+        setTimeout(() => document.getElementById('viewer-ui').style.display = 'none', 500);
+
+        // 關閉硬體鏡頭以消除左上角隱私綠點
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+        }
+    }
+
+    // 🌟 修改後的核心：直接讀取您專案中的本地卡牌路徑
+    function executeVisualSynthesis(cardName) {
+        const ctx = canvas.getContext('2d');
+        const bgImg = new Image();
+        bgImg.src = localCapturedRawBase64;
+        
+        bgImg.onload = () => {
+            const cardImg = new Image();
+            
+            // 🔥 關鍵修改：完美的對接您的本地路徑 `./cards/xxx_xxx.png`
+            cardImg.src = `./cards/${cardName}.png`; 
+            
+            cardImg.onload = () => {
+                let opacity = 0;
+                
+                // 緩慢顯現動畫引擎 (10秒時長，每次 +0.0015)
+                const animateRendering = () => {
+                    opacity += 0.002; 
+                    
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    // 1. 重新繪製底部的真實照片背景
+                    ctx.drawImage(bgImg, 0, 0);
+                    
+                    // 2. 開始疊加虛擬預言牌面
+                    ctx.save();
+                    ctx.globalAlpha = Math.min(opacity, 1);
+                    
+                    // 🌟 商業級混合模式：使用 multiply (正片疊底)，原牌背的陰影與顆粒感會自然透出來
+                    ctx.globalCompositeOperation = 'multiply';
+                    
+                    // 放大到 90% 大尺寸版的核心渲染邊界 (等比例放大，對準畫布中央)
+                    const cardWidth = canvas.width * 0.42; // 大尺寸覆蓋率
+                    const cardHeight = cardWidth * 1.42; 
+                    const targetX = (canvas.width - cardWidth) / 2;
+                    const targetY = (canvas.height - cardHeight) / 2;
+                    
+                    ctx.drawImage(cardImg, targetX, targetY, cardWidth, cardHeight);
+                    ctx.restore();
+
+                    if (opacity < 1) {
+                        requestAnimationFrame(animateRendering);
+                    } else {
+                        finalizeAndInjectNativeImage();
+                    }
+                };
+                animateRendering();
+            };
+
+            // 圖檔防呆機制：如果本地對應的 png 遺失，在 Canvas 上動態繪製一張緊急備份牌，確保魔術絕不穿幫
+            cardImg.onerror = () => {
+                let opacity = 0;
+                const animateFallback = () => {
+                    opacity += 0.005;
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(bgImg, 0, 0);
+                    ctx.save();
+                    ctx.globalAlpha = Math.min(opacity, 1);
+                    
+                    const cardWidth = canvas.width * 0.42;
+                    const cardHeight = cardWidth * 1.42;
+                    const targetX = (canvas.width - cardWidth) / 2;
+                    const targetY = (canvas.height - cardHeight) / 2;
+                    
+                    // 畫一張乾淨的白底紙牌
+                    ctx.fillStyle = "#ffffff";
+                    ctx.shadowColor = "rgba(0,0,0,0.5)";
+                    ctx.shadowBlur = 20;
+                    ctx.beginPath();
+                    ctx.roundRect(targetX, targetY, cardWidth, cardHeight, 16);
+                    ctx.fill();
+                    
+                    // 寫入純文字花色
+                    ctx.fillStyle = cardName.includes('heart') || cardName.includes('diamond') ? '#dc2626' : '#0f172a';
+                    ctx.font = `bold ${cardWidth * 0.2}px Arial`;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(cardName.split('_')[1].toUpperCase(), targetX + cardWidth/2, targetY + cardHeight/2);
+                    ctx.restore();
+
+                    if (opacity < 1) { requestAnimationFrame(animateFallback); } 
+                    else { finalizeAndInjectNativeImage(); }
+                };
+                animateFallback();
+            };
+        };
+    }
+
+    // 將 Canvas 打包轉換為原生 <img> 標籤，開放 iOS 系統相簿長按儲存權限
+    function finalizeAndInjectNativeImage() {
+        const finalDataURL = canvas.toDataURL('image/jpeg', 0.95);
+        const nativeImg = document.createElement('img');
+        nativeImg.src = finalDataURL;
+        nativeImg.className = "fixed inset-0 w-full h-full object-cover z-[2000]";
+        document.body.appendChild(nativeImg);
+    }
+</script>
+
+</body>
+</html>
