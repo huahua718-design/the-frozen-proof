@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 陰影感影版</title>
+    <title>The Frozen Proof - 鏡頭遮掩感應版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -23,7 +23,7 @@
         .btn-magic { background: rgba(0,0,0,0.6); border: 1px solid var(--accent); color: var(--accent); padding: 14px 28px; border-radius: 50px; font-weight: 500; transition: all 0.3s; backdrop-filter: blur(8px); }
         .btn-magic:active { transform: scale(0.95); background: var(--accent); color: #000; }
 
-        /* 全螢幕相機預覽（前置鏡頭需水平鏡像翻轉） */
+        /* 全螢幕相機預覽（前置鏡頭自拍需水平鏡像） */
         #camera-view { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; transform: scaleX(-1); }
 
         /* 綠色瞄準框 UI */
@@ -44,7 +44,7 @@
             text-align: center; color: var(--accent); font-size: 11px; letter-spacing: 4px;
         }
 
-        /* 靜態照片與顯影畫布 */
+        /* 全螢幕靜態照片與顯影畫布 */
         #photo-canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 30; display: none; }
         
         /* 魔術師全螢幕隱形觸控層 */
@@ -57,13 +57,13 @@
             align-items: center; justify-content: center; padding: 40px; text-align: center;
         }
 
-        /* 狀態提示 */
+        /* 提示框 */
         .toast {
             position: fixed; bottom: 50px; left: 50%; transform: translateX(-50%);
             background: rgba(0,0,0,0.85); border: 1px solid var(--accent); color: var(--accent);
             padding: 14px 28px; border-radius: 50px; z-index: 200; pointer-events: none;
             opacity: 0; transition: opacity 0.4s; font-size: 14px; letter-spacing: 1px;
-            text-align: center; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
     </style>
 </head>
@@ -71,11 +71,11 @@
 
 <video id="camera-view" autoplay playsinline muted></video>
 
-<div id="viewer-ui" class="viewfinder">
+<div id="viewer-ui" class="viewfinder" style="display:none;">
     <div class="viewfinder-box"></div>
     <div class="fixed bottom-24 left-0 right-0 flex justify-center pointer-events-auto">
         <button id="capture-btn" class="btn-magic text-lg px-10 shadow-lg">
-            <i class="fa-solid fa-camera mr-2"></i> 拍下自拍定格
+            <i class="fa-solid fa-camera mr-2"></i> 拍下時空定格
         </button>
     </div>
 </div>
@@ -85,12 +85,12 @@
 <div id="master-ui" style="display:none;">
     <div class="mb-8">
         <h2 class="text-3xl font-bold mb-2">ROOM: <span id="room-id-display" class="text-accent tracking-wider">----</span></h2>
-        <p class="text-white/50 text-sm">請引導觀眾掃描下方條碼連線</p>
+        <p class="text-white/50 text-sm">請引導觀眾掃描上方條碼連線</p>
     </div>
     <div id="qrcode-container" class="bg-white p-5 rounded-3xl mb-8 shadow-2xl">
         <img id="qrcode-img" src="" alt="QR Code" class="w-60 h-60">
     </div>
-    <p class="animate-pulse text-accent/80 text-sm tracking-wide">雙擊螢幕：隱藏此畫面 / 開始盲操輸入</p>
+    <p class="animate-pulse text-accent/80 text-sm tracking-wide">雙擊螢幕：隱藏此畫面 / 開始控制盲操</p>
 </div>
 
 <div id="gesture-zone"></div>
@@ -112,11 +112,11 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    /** [2] 系統路由與變數定義 **/
+    /** [2] 路由與全局變數 **/
     const urlParams = new URLSearchParams(window.location.search);
     const mode = urlParams.get('mode'); 
     const roomFromUrl = urlParams.get('room');
-    let currentRoom = roomFromUrl || "9527"; // 預設使用您的習慣房號
+    let currentRoom = roomFromUrl || "9527"; // 預設使用 9527 房間
     let isMaster = (mode === 'master');
 
     const EDGE = { LEFT: 0, TOP: 1, RIGHT: 2, BOTTOM: 3 };
@@ -124,7 +124,11 @@
 
     window.onload = () => {
         if (isMaster) {
-            // 初始化時清除舊資料，確保流程乾淨
+            // 修正 2: 魔術師端初始化，立即關閉並徹底隱藏相機與觀眾 UI 元件
+            document.getElementById('camera-view').style.display = 'none';
+            document.getElementById('viewer-ui').style.display = 'none';
+            
+            // 每次重新開局重設資料庫，確保流程乾淨
             db.ref(`twatch_rooms/${currentRoom}`).set({ forcedCard: "", timestamp: 0 });
             setupMasterMode();
         } else {
@@ -171,7 +175,7 @@
                 
                 if (strokes.length === 2) {
                     decodeAndSendMagic(strokes);
-                    strokes = [];
+                    strokes = []; // 清空重置
                 }
             }
         }, { passive: true });
@@ -192,13 +196,14 @@
         return dx < 0 ? 1 : -1;
     }
 
+    // 修正 1: 完美還原並確認兩筆畫解碼公式，確保與本地圖庫完全接軌
     function decodeAndSendMagic(s) {
-        let suitIdx = s[0].edge; 
+        let suitIdx = s[0].edge; // 0梅花, 1方塊, 2紅心, 3黑桃
         let isSecondHalf = (s[0].dir === -1);
         let cardValueOffset = 0;
         
         if (s[1].edge === s[0].edge) {
-            cardValueOffset = 12; // A
+            cardValueOffset = 12; // 同邊緣雙擊滑動為 A
         } else {
             const relQuadrant = (s[1].edge - s[0].edge + 4) % 4;
             cardValueOffset = (isSecondHalf ? 6 : 0) + (relQuadrant - 1) * 2 + (s[1].dir === 1 ? 0 : 1);
@@ -211,7 +216,7 @@
         db.ref(`twatch_rooms/${currentRoom}`).update({
             forcedCard: cardCode,
             timestamp: Date.now()
-        }).then(() => triggerToast(`<i class="fa-solid fa-wifi mr-2"></i>思想密碼 [${cardCode}] 已同步`));
+        }).then(() => triggerToast(`<i class="fa-solid fa-wifi mr-2"></i>已成功同步預言：${cardCode}`));
     }
 
     function triggerToast(htmlContent) {
@@ -222,24 +227,27 @@
     }
 
 
-    /** [4] 觀眾端：自拍定格與光感應顯影邏輯 (Viewer) **/
+    /** [4] 觀眾端核心邏輯 (Viewer) **/
     const video = document.getElementById('camera-view');
     const canvas = document.getElementById('photo-canvas');
     const captureBtn = document.getElementById('capture-btn');
     
     let photoCaptured = false;
     let isMagicExecuted = false;
-    let forcedCardName = null;
+    let pendingCardName = null;
     let localCapturedRawBase64 = null;
+    let targetRect = null; // 用於儲存綠色拍照框的螢幕絕對位置
 
-    // 用於背景分析光線的隱藏微型畫布
+    // 用於背景默默感應光線亮度的極小畫布 (10x10)
     const lumaCanvas = document.createElement('canvas');
-    lumaCanvas.width = 16;
-    lumaCanvas.height = 16;
+    lumaCanvas.width = 10;
+    lumaCanvas.height = 10;
     const lumaCtx = lumaCanvas.getContext('2d');
 
     async function setupViewerMode(roomId) {
-        // 流程修改 1：設定成「前置鏡頭 (user)」自拍
+        document.getElementById('viewer-ui').style.display = 'flex';
+        
+        // 強制設定為前置自拍鏡頭 (facingMode: 'user')
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, 
@@ -247,120 +255,120 @@
             });
             video.srcObject = stream;
         } catch (err) {
-            alert("請允許網頁相機存取權限，以進行心靈時空連線。");
+            alert("請允許開啟相機權限以進行連線。");
         }
 
-        // 監聽 Firebase 訊號 (隨時接收魔術師輸入的卡牌)
+        // 監聽魔術師發送的撲克牌訊號
         db.ref(`twatch_rooms/${roomId}`).on('value', (snapshot) => {
             const data = snapshot.val();
             if (data && data.forcedCard) {
-                forcedCardName = data.forcedCard;
+                pendingCardName = data.forcedCard;
             }
         });
 
-        // 流程修改 2：對準綠色框點擊自拍
         captureBtn.onclick = () => {
             if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
             executeCameraCapture();
         };
     }
 
-    // 計算拍照框在當前螢幕上的精確 CSS 坐標，以修正卡牌位置與拍照框完全相同
-    function getViewfinderRect() {
-        const screenW = window.innerWidth;
-        const screenH = window.innerHeight;
-        let cardW = screenW * 0.65;
-        if (cardW > 280) cardW = 280;
-        let cardH = cardW * (91 / 65);
-        if (cardH > 392) cardH = 392;
-        
-        return {
-            x: (screenW - cardW) / 2,
-            y: (screenH - cardH) / 2,
-            w: cardW,
-            h: cardH
-        };
-    }
+    // 模擬相機 object-fit: cover 的精準全螢幕畫布重繪算法
+    function drawVideoToCanvasCover(ctx, w, h) {
+        let videoW = video.videoWidth;
+        let videoH = video.videoHeight;
+        if (!videoW || !videoH) return;
 
-    // 模擬 object-fit: cover 繪製視訊流到畫布上
-    function drawVideoCover(ctx, img, w, h) {
-        let imgRatio = img.videoWidth / img.videoHeight;
+        let videoRatio = videoW / videoH;
         let screenRatio = w / h;
-        let sw, sh, sx, sy;
-        if (imgRatio > screenRatio) {
-            sh = img.videoHeight; sw = sh * screenRatio;
-            sx = (img.videoWidth - sw) / 2; sy = 0;
+        let sx, sy, sw, sh;
+
+        if (videoRatio > screenRatio) {
+            sh = videoH; sw = sh * screenRatio;
+            sx = (videoW - sw) / 2; sy = 0;
         } else {
-            sw = img.videoWidth; sh = sw / screenRatio;
-            sx = 0; sy = (img.videoHeight - sh) / 2;
+            sw = videoW; sh = sw / screenRatio;
+            sx = 0; sy = (videoH - sh) / 2;
         }
-        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+
+        ctx.save();
+        // 前置鏡頭拍照時進行水平鏡像反轉，確保拍出來的靜態照片與畫面上看到的完全一模一樣
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+        ctx.restore();
     }
 
     function executeCameraCapture() {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        canvas.width = w;
-        canvas.height = h;
+        // 修正 3: 在隱藏 UI 之前，立刻抓取綠色框在當前手機螢幕上的精確絕對 CSS 像素位置
+        const box = document.querySelector('.viewfinder-box');
+        const rect = box.getBoundingClientRect();
+        targetRect = {
+            x: rect.left,
+            y: rect.top,
+            w: rect.width,
+            h: rect.height
+        };
+
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+        canvas.width = screenW;
+        canvas.height = screenH;
         const ctx = canvas.getContext('2d');
         
-        // 鏡像翻轉繪製（確保自拍靜態照片與鏡頭看到的完全一致）
-        ctx.save();
-        ctx.translate(w, 0);
-        ctx.scale(-1, 1);
-        drawVideoCover(ctx, video, w, h);
-        ctx.restore();
-        
+        // 執行截圖
+        drawVideoToCanvasCover(ctx, screenW, screenH);
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
         photoCaptured = true;
 
-        // 畫面切換：顯示畫布，隱藏拍照 UI
+        // 畫面切換：顯示畫布
         canvas.style.display = 'block';
+        
+        // 隱藏拍照 UI
         document.getElementById('viewer-ui').style.opacity = '0';
         setTimeout(() => document.getElementById('viewer-ui').style.display = 'none', 500);
 
-        // 💡 關鍵：不可關閉影片流（video物件不隱藏，而是壓在 canvas 底下），以便背景持續感應光線
+        // 🚨 魔術核心關鍵：不要關閉 video 鏡頭流，而是將它壓在畫布最底層 (z-index: 5)
+        // 這樣觀眾看得到靜態照片，但前置鏡頭能在背景默默感應手掌遮蔽變暗！
         video.style.zIndex = "5"; 
         
-        // 提示觀眾放下手機
-        triggerToast(`<i class="fa-solid fa-mobile-screen mr-2"></i>時空已定格，請將手機平放於桌面`);
+        triggerToast(`<i class="fa-solid fa-circle-check mr-2"></i>時空定格成功，請將手機平放於桌面`);
 
-        // 啟動前置鏡頭「變暗偵測器」
+        // 啟動變暗即時感應引擎
         requestAnimationFrame(checkBackgroundBrightness);
     }
 
-    // 流程修改 4：背景實時偵測前置鏡頭是否被遮掩變暗
+    // 背景實時偵測前置鏡頭是否被遮掩變暗
     function checkBackgroundBrightness() {
         if (isMagicExecuted || !photoCaptured) return;
 
         try {
-            // 將視訊流縮小繪製到 16x16 畫布以計算平均亮度
-            lumaCtx.drawImage(video, 0, 0, 16, 16);
-            const imgData = lumaCtx.getImageData(0, 0, 16, 16);
+            // 將前置鏡頭畫面縮小繪製到 10x10 的微型記憶體畫布中計算明度
+            lumaCtx.drawImage(video, 0, 0, 10, 10);
+            const imgData = lumaCtx.getImageData(0, 0, 10, 10);
             const d = imgData.data;
             let totalLuma = 0;
 
             for (let i = 0; i < d.length; i += 4) {
-                // 使用標準明度公式 (Luma)
+                // 使用國際標準明度公式 (Luma)
                 totalLuma += (0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2]);
             }
-            let avgBrightness = totalLuma / (16 * 16);
+            let avgBrightness = totalLuma / (10 * 10);
 
-            // 當數值小於 28 (代表手完全遮蔽鏡頭) 且 魔術師已經輸入撲克牌，觸發顯影！
-            if (avgBrightness < 28 && forcedCardName) {
+            // 當平均明度小於 35（手掌完全蓋住鏡頭）且 魔術師已經在遙控端畫好兩筆劃
+            if (avgBrightness < 35 && pendingCardName) {
                 isMagicExecuted = true;
                 
-                // 停止硬體鏡頭以關閉隱私綠點
+                // 奇蹟發生！此時可以完全關閉鏡頭硬體，消除手機左上角的隱私綠點
                 if (video.srcObject) {
                     video.srcObject.getTracks().forEach(track => track.stop());
                 }
                 
-                // 開始顯影動畫
-                executeVisualSynthesis(forcedCardName);
+                // 觸發撲克牌融合顯影動畫
+                executeVisualSynthesis(pendingCardName);
                 return;
             }
         } catch (e) {
-            console.log("偵測中...");
+            // 靜默處理初始化未完成的狀況
         }
 
         requestAnimationFrame(checkBackgroundBrightness);
@@ -377,25 +385,24 @@
             
             cardImg.onload = () => {
                 let opacity = 0;
-                const rect = getViewfinderRect(); // 獲取精確拍照框位置
                 
-                // 漸進顯影動畫引擎（約 3-4 秒）
+                // 漸進顯影動畫引擎（時間約 3 秒）
                 const animateRendering = () => {
-                    opacity += 0.008; 
+                    opacity += 0.01; 
                     
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    // 1. 繪製底部原本自拍的照片
+                    // 1. 重新繪製底層觀眾自拍的真實照片
                     ctx.drawImage(bgImg, 0, 0);
                     
-                    // 2. 疊加虛擬預言牌面
+                    // 2. 在上層精準疊加撲克牌
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 商業級混合：使用正片疊底 (multiply)，原白紙牌上的陰影、顆粒和手指疊加會自然透出
+                    // 正片疊底 (multiply) 混合：讓白牌上的真實陰影與顆粒完美穿透出來
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    // 修正點 3：精確在拍照框範圍內呈現
-                    ctx.drawImage(cardImg, rect.x, rect.y, rect.w, rect.h);
+                    // 修正 3: 精確在之前測量好的綠色框（targetRect）範圍內渲染呈現，分毫不差！
+                    ctx.drawImage(cardImg, targetRect.x, targetRect.y, targetRect.w, targetRect.h);
                     ctx.restore();
 
                     if (opacity < 1) {
@@ -407,29 +414,28 @@
                 animateRendering();
             };
 
-            // 備份應急機制：防止 png 遺失
+            // 圖檔防呆應急機制：若本地專案 png 遺失，在畫布上動態繪製備份牌，確保絕對不穿幫
             cardImg.onerror = () => {
                 let opacity = 0;
-                const rect = getViewfinderRect();
                 const animateFallback = () => {
-                    opacity += 0.01;
+                    opacity += 0.015;
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(bgImg, 0, 0);
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
                     ctx.fillStyle = "#ffffff";
-                    ctx.shadowColor = "rgba(0,0,0,0.4)";
+                    ctx.shadowColor = "rgba(0,0,0,0.3)";
                     ctx.shadowBlur = 15;
                     ctx.beginPath();
-                    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 16);
+                    ctx.roundRect(targetRect.x, targetRect.y, targetRect.w, targetRect.h, 16);
                     ctx.fill();
                     
                     ctx.fillStyle = cardName.includes('heart') || cardName.includes('diamond') ? '#dc2626' : '#0f172a';
-                    ctx.font = `bold ${rect.w * 0.16}px Arial`;
+                    ctx.font = `bold ${targetRect.w * 0.16}px Arial`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText(cardName.split('_')[1].toUpperCase(), rect.x + rect.w/2, rect.y + rect.h/2);
+                    ctx.fillText(cardName.split('_')[1].toUpperCase(), targetRect.x + targetRect.w/2, targetRect.y + targetRect.h/2);
                     ctx.restore();
 
                     if (opacity < 1) { requestAnimationFrame(animateFallback); } 
@@ -440,7 +446,7 @@
         };
     }
 
-    // 轉換為原生 <img> 標籤，開放手機相簿長按儲存權限
+    // 打包為原生 <img> 標籤，開放長按儲存相簿權限
     function finalizeAndInjectNativeImage() {
         const finalDataURL = canvas.toDataURL('image/jpeg', 0.95);
         const nativeImg = document.createElement('img');
