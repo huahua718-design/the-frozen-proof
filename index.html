@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 智能顯影版</title>
+    <title>The Frozen Proof - 終極智能顯影版</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -88,7 +88,6 @@
     let strokes = [];
     let trackedPoints = null;
 
-    // 修正點 2：改用 DOMContentLoaded，網頁結構好了「立刻秒開」UI，絕不卡死黑屏
     document.addEventListener('DOMContentLoaded', () => {
         if (isMaster) {
             setupMasterMode();
@@ -174,7 +173,7 @@
         });
     }
 
-    /** [3] 觀眾端：相機、OpenCV 手指防遮擋追蹤引擎 **/
+    /** [3] 觀眾端：相機、OpenCV 終極追蹤引擎 **/
     const video = document.getElementById('camera-view');
     const trackerCanvas = document.getElementById('tracker-canvas');
     const photoCanvas = document.getElementById('photo-canvas');
@@ -184,7 +183,7 @@
     let isMagicExecuted = false;
 
     async function setupViewerMode(roomId) {
-        clickLayer.style.display = 'block'; // 確保拍照按鈕層立刻看得到
+        clickLayer.style.display = 'block';
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, 
@@ -193,7 +192,6 @@
             video.srcObject = stream;
             video.onloadedmetadata = () => {
                 video.play();
-                // 啟動影像迴圈
                 setTimeout(processVideoFrame, 500);
             };
         } catch (err) {
@@ -215,13 +213,13 @@
         };
     }
 
+    // 🔥 核心升級：大津二值化 + 極端對角投影追蹤算法
     function processVideoFrame() {
         if (video.paused || video.ended) {
             requestAnimationFrame(processVideoFrame);
             return;
         }
 
-        // 修正點 3：嚴格防禦偵測。如果 OpenCV 庫尚未完全在瀏覽器端初始化好，先不執行計算，但「絕不報錯卡死」
         if (typeof cv === 'undefined' || !cv.imread || !cv.Mat) {
             requestAnimationFrame(processVideoFrame);
             return;
@@ -244,10 +242,14 @@
             let dst = new cv.Mat();
             let gray = new cv.Mat();
             
+            // 1. 灰階與高斯模糊
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
             cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-            cv.adaptiveThreshold(gray, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
             
+            // 🌟 修正點 1：改用全域大津二值化 (Otsu's Threshold)。保持全白撲克牌「內部實心不碎裂」
+            cv.threshold(gray, dst, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+            
+            // 2. 尋找輪廓
             let contours = new cv.MatVector();
             let hierarchy = new cv.Mat();
             cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -258,7 +260,7 @@
             for (let i = 0; i < contours.size(); ++i) {
                 let cnt = contours.get(i);
                 let area = cv.contourArea(cnt);
-                if (area > maxArea && area > (width * height * 0.03)) {
+                if (area > maxArea && area > 4000) { // 設定合理的最低面積過濾雜訊
                     maxArea = area;
                     maxContourIdx = i;
                 }
@@ -268,30 +270,42 @@
 
             if (maxContourIdx !== -1) {
                 let bestContour = contours.get(maxContourIdx);
+                
+                // 3. 提取凸包 (Convex Hull) 完美吞噬、修復手指捏住造成的凹陷雜訊
                 let hull = new cv.Mat();
                 cv.convexHull(bestContour, hull, false, true);
                 
-                let approx = new cv.Mat();
-                let peri = cv.arcLength(hull, true);
-                cv.approxPolyDP(hull, approx, 0.04 * peri, true);
+                let hullPoints = [];
+                for (let j = 0; j < hull.rows; j++) {
+                    hullPoints.push({ x: hull.data32S[j * 2], y: hull.data32S[j * 2 + 1] });
+                }
                 
-                if (approx.rows === 4) {
-                    let pts = [];
-                    for (let j = 0; j < 4; j++) {
-                        pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] });
+                // 🌟 修正點 2：極端對角投影演算法。不再死板限制 4 個頂點。
+                // 透過對角線坐標疊加投影，直接從複雜的凸包中抽取出最外圈的「左上、右上、右下、左下」四個大角點！
+                if (hullPoints.length >= 4) {
+                    let tl = hullPoints[0], tr = hullPoints[0], br = hullPoints[0], bl = hullPoints[0];
+                    let minSum = hullPoints[0].x + hullPoints[0].y;
+                    let maxSum = hullPoints[0].x + hullPoints[0].y;
+                    let minDiff = hullPoints[0].x - hullPoints[0].y;
+                    let maxDiff = hullPoints[0].x - hullPoints[0].y;
+                    
+                    for (let i = 1; i < hullPoints.length; i++) {
+                        let p = hullPoints[i];
+                        let sum = p.x + p.y;
+                        let diff = p.x - p.y;
+                        
+                        if (sum < minSum) { minSum = sum; tl = p; }   // 左上 (x+y 最小)
+                        if (sum > maxSum) { maxSum = sum; br = p; }   // 右下 (x+y 最大)
+                        if (diff < minDiff) { minDiff = diff; bl = p; } // 左下 (x-y 最小)
+                        if (diff > maxDiff) { maxDiff = diff; tr = p; } // 右上 (x-y 最大)
                     }
                     
-                    pts.sort((a, b) => a.x - b.x);
-                    let leftSide = [pts[0], pts[1]].sort((a, b) => a.y - b.y);
-                    let rightSide = [pts[2], pts[3]].sort((a, b) => a.y - b.y);
-                    
-                    trackedPoints = {
-                        tl: leftSide[0], bl: leftSide[1],
-                        tr: rightSide[0], br: rightSide[1]
-                    };
+                    // 覆寫即時暫存坐標
+                    trackedPoints = { tl, tr, br, bl };
 
+                    // 渲染超炫科技綠色對齊線
                     tCtx.strokeStyle = "#deff9a";
-                    tCtx.lineWidth = 4;
+                    tCtx.lineWidth = 5;
                     tCtx.shadowBlur = 15;
                     tCtx.shadowColor = "#deff9a";
                     tCtx.beginPath();
@@ -302,11 +316,11 @@
                     tCtx.closePath();
                     tCtx.stroke();
                 }
-                hull.delete(); approx.delete();
+                hull.delete();
             }
             src.delete(); dst.delete(); gray.delete(); contours.delete(); hierarchy.delete();
         } catch (e) {
-            // 靜態捕捉異常
+            // 安全捕捉機制
         }
 
         requestAnimationFrame(processVideoFrame);
@@ -345,7 +359,6 @@
         }
     }
 
-    /** [4] 商業級透視變形與多重光影融合顯影引擎 **/
     function executeVisualSynthesis(cardName) {
         const ctx = photoCanvas.getContext('2d');
         const bgImg = new Image();
