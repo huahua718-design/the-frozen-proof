@@ -18,6 +18,10 @@
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
     
+    /* 鏡頭與 AR 畫布圖層基礎配置 */
+    .camera-layer { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    .display-layer { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
     /* 8秒緩慢漸顯融合動畫 */
     @keyframes magicRevealWipe {
       0% { filter: blur(12px) brightness(2); opacity: 0; }
@@ -67,14 +71,28 @@
       const trackedPointsRef = useRef(null);
       const forcedCardRef = useRef(null);
       const localStreamRef = useRef(null);
+      
+      // 🌟 核心防護：記錄本次表演的起始時間，容許 5 秒的網路誤差
+      const sessionStartTime = useRef(Date.now() - 5000);
 
+      // 🧹 魔術師端初始化：一進入大廳，立刻清空該房間的舊有資料，確保表演乾淨
+      useEffect(() => {
+        if (!isSpectator) {
+          db.ref('twatch_rooms/' + roomId).set({ status: 'ready', timestamp: Date.now() });
+        }
+      }, [isSpectator, roomId]);
+
+      // 📡 觀眾端監聽：讀取魔術師發送的牌
       useEffect(() => {
         if (!isSpectator) return;
         const roomRef = db.ref('twatch_rooms/' + roomId);
         roomRef.on('value', (snapshot) => {
           const data = snapshot.val();
-          if (data && data.card) {
+          
+          // 🌟 核心修正：只接收 timestamp 大於本次 sessionStartTime 的「全新訊號」
+          if (data && data.card && data.timestamp > sessionStartTime.current) {
             forcedCardRef.current = data.card;
+            // 只有在處於「相機追蹤模式」時收到新牌，才會自動觸發魔法
             if (phase === 'TRACKING') {
               setPhase('REVEALING');
               executeARFreezeAndSynthesis();
@@ -249,7 +267,7 @@
             drawPerspectiveCard(ctx, cardImg, targetPoints, w);
           };
         } else {
-          // 萬一魔術師沒發牌卻點了按鈕，給予一張預設黑桃A
+          // 若手動點擊拍照而無指定花色時，預設顯示黑桃A
           const backupImg = new Image();
           backupImg.src = "./cards/spade_1.png";
           backupImg.onload = () => {
@@ -367,7 +385,7 @@
         return (
           <div className="w-screen h-screen bg-black overflow-hidden relative" onPointerDown={handlePointerDown}>
             
-            {/* 【層級 100】進入按鈕：只在最一開始出現，確保絕對點得到 */}
+            {/* 【層級 100】進入按鈕 */}
             {phase === 'INIT' && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 100 }} className="flex items-center justify-center bg-black">
                 <div className="text-white/40 text-sm border border-white/20 px-8 py-4 rounded-full animate-pulse tracking-wider bg-zinc-900/50">
@@ -376,34 +394,33 @@
               </div>
             )}
             
-            {/* 【層級 10】相機畫面：被嚴格限制在底層，不會蓋住 UI */}
+            {/* 【層級 10】相機底圖 */}
             {(phase === 'TRACKING' || phase === 'REVEALING') && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 10 }}>
                 <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} playsInline muted></video>
               </div>
             )}
             
-            {/* 【層級 20】追蹤畫布：OpenCV 綠線渲染區 */}
+            {/* 【層級 20】綠色追蹤線框 */}
             {phase === 'TRACKING' && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
                 <canvas ref={trackerCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}></canvas>
               </div>
             )}
 
-            {/* 🎯 【層級 30】互動 UI 介面：強制浮在最上方！包含瞄準框與按鈕 */}
+            {/* 🎯 【層級 30】瞄準框與拍照按鈕 */}
             {phase === 'TRACKING' && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 30, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 
-                {/* 瞄準框實體 */}
                 <div className="w-[65vw] max-w-[280px] aspect-[63/88] border-[3px] border-dashed border-[#deff9a] bg-black/20 rounded-xl flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)]">
                   <span className="text-[#deff9a] text-sm tracking-widest font-bold shadow-black drop-shadow-md">將白牌放入框內</span>
                 </div>
 
-                {/* 拍照按鈕 (強制啟用指標事件 pointEvents: 'auto') */}
+                {/* 獨立紅按鈕區塊，強制攔截點擊 */}
                 <div style={{ position: 'absolute', bottom: '40px', pointerEvents: 'auto' }} className="flex flex-col items-center">
                   <button 
                     onClick={(e) => {
-                      e.stopPropagation(); // 防止干擾背景點擊
+                      e.stopPropagation();
                       if (phase === 'TRACKING') {
                         setPhase('REVEALING');
                         executeARFreezeAndSynthesis();
@@ -418,7 +435,7 @@
               </div>
             )}
 
-            {/* 【層級 40】合成結果：凍結畫面與魔法漸顯 */}
+            {/* 【層級 40】凍結與魔法顯影畫面 */}
             {(phase === 'REVEALING') && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 40 }}>
                 <canvas ref={renderCanvasRef} className="animate-magic-reveal" style={{ width: '100%', height: '100%', objectFit: 'cover' }}></canvas>
