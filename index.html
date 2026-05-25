@@ -143,10 +143,8 @@
             let thresh = new cv.Mat();
             
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-            // 局部自適應閾值處理
             cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 21, 4);
             
-            // 形態學閉合，填補白牌內部空隙
             let ksize = new cv.Size(5, 5);
             let M = cv.getStructuringElement(cv.MORPH_RECT, ksize);
             cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, M);
@@ -162,21 +160,17 @@
               let cnt = contours.get(i);
               let area = cv.contourArea(cnt);
               
-              // 基礎面積過濾
               if (area > 10000 && area < (w * h * 0.6)) {
                 let rect = cv.boundingRect(cnt);
                 
-                // 🎯 核心升級：瞄準框 ROI 鎖定過濾！
-                // 計算被偵測物體的中心點
+                // 🎯 核心固定瞄準框 ROI 鎖定過濾
                 let centerX = rect.x + rect.width / 2;
                 let centerY = rect.y + rect.height / 2;
                 
-                // 只有當中心點確實落在螢幕中央 (左右各留25%, 上下各留22% 的中心瞄準區) 時才放行辨識
                 if (centerX < w * 0.25 || centerX > w * 0.75 || centerY < h * 0.22 || centerY > h * 0.78) {
-                  continue; // 在瞄準框範圍外，直接物理無視
+                  continue; 
                 }
 
-                // 撲克牌基本長寬比檢查
                 let aspectRatio = rect.width / rect.height;
                 if (aspectRatio < 0.4 || aspectRatio > 2.0) continue;
 
@@ -191,7 +185,6 @@
                   let p3 = { x: approx.data32S[4], y: approx.data32S[5] };
                   let p4 = { x: approx.data32S[6], y: approx.data32S[7] };
                   
-                  // 頂點排序 (左上、右上、右下、左下)
                   let pts = [p1, p2, p3, p4].sort((a, b) => a.y - b.y);
                   let tl = pts[0].x < pts[1].x ? pts[0] : pts[1];
                   let tr = pts[0].x < pts[1].x ? pts[1] : pts[0];
@@ -204,7 +197,6 @@
               }
             }
 
-            // 清理畫布並繪製高擬真綠色追蹤框
             ctx.clearRect(0, 0, w, h);
             if (bestQuad) {
               trackedPointsRef.current = bestQuad;
@@ -221,9 +213,7 @@
             }
 
             src.delete(); gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete(); M.delete();
-          } catch (e) {
-            // 異常安全機制
-          }
+          } catch (e) {}
 
           if (active) requestAnimationFrame(processFrame);
         };
@@ -245,18 +235,15 @@
         renderCanvas.height = h;
         const ctx = renderCanvas.getContext('2d');
 
-        // 擷取當前相機底圖並進行鏡像修正對齊
         ctx.translate(w, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, w, h);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-        // 關閉相機串流
         if (localStreamRef.current) {
           localStreamRef.current.getTracks().forEach(t => t.stop());
         }
 
-        // 取得結凍時的四角座標（若無抓到則提供精確的中央預設值）
         let targetPoints = trackedPointsRef.current;
         if (!targetPoints) {
           targetPoints = {
@@ -265,7 +252,6 @@
           };
         }
 
-        // 載入花色圖片進行 3D 透視疊加
         const cardData = forcedCardRef.current;
         if (cardData && cardData.imageUrl) {
           const cardImg = new Image();
@@ -273,12 +259,17 @@
           cardImg.onload = () => {
             drawPerspectiveCard(ctx, cardImg, targetPoints, w);
           };
+        } else {
+          // 如果後台還沒給牌，手動點擊時給予一張備用預設卡（黑桃A）避免白屏
+          const backupImg = new Image();
+          backupImg.src = "./cards/spade_1.png";
+          backupImg.onload = () => {
+            drawPerspectiveCard(ctx, backupImg, targetPoints, w);
+          };
         }
       };
 
-      // 射影幾何透視形變矩陣
       const drawPerspectiveCard = (ctx, img, pts, canvasWidth) => {
-        // 因相機層向左翻轉鏡像，在此對座標進行鏡像換算以完美貼合
         const tl = { x: canvasWidth - pts.tr.x, y: pts.tr.y };
         const tr = { x: canvasWidth - pts.tl.x, y: pts.tl.y };
         const br = { x: canvasWidth - pts.bl.x, y: pts.bl.y };
@@ -310,13 +301,11 @@
         }
 
         ctx.save();
-        // 100% 物理裁切，確保任何撲克牌圖案絕不溢出邊框之外
         ctx.beginPath();
         ctx.moveTo(tl.x, tl.y); ctx.lineTo(tr.x, tr.y); ctx.lineTo(br.x, br.y); ctx.lineTo(bl.x, bl.y);
         ctx.closePath();
         ctx.clip();
 
-        // 混合模式設為 multiply，保留環境卡牌的自然陰影與質感
         ctx.globalCompositeOperation = 'multiply';
         let xt = getTransform(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y, br.x, br.y);
         ctx.transform(xt[0], xt[1], xt[2], xt[3], xt[4], xt[5]);
@@ -324,7 +313,6 @@
         ctx.restore();
       };
 
-      // 觸控點擊調度管理
       const handlePointerDown = (e) => {
         const now = Date.now();
         const isDoubleTap = now - lastTapTime.current < 400;
@@ -389,25 +377,36 @@
       if (isSpectator) {
         return (
           <div className="w-screen h-screen bg-black flex items-center justify-center relative overflow-hidden" onPointerDown={handlePointerDown}>
+            
+            {/* 🚪 初始進入點圖層（最頂層 z-40） */}
             {phase === 'INIT' && (
-              <div className="text-white/30 text-sm border border-white/10 px-8 py-4 rounded-full animate-pulse cursor-pointer tracking-wider">
-                進入心靈顯影空間 (點擊開啟)
+              <div className="absolute inset-0 flex items-center justify-center bg-black z-40">
+                <div className="text-white/40 text-sm border border-white/20 px-8 py-4 rounded-full animate-pulse cursor-pointer tracking-wider bg-zinc-900/50">
+                  進入心靈顯影空間 (點擊開啟鏡頭)
+                </div>
               </div>
             )}
             
-            {/* 鏡頭與動態科技綠色追蹤線條層 */}
+            {/* 📷 底層：鏡頭影像與 OpenCV 偵測畫布（底層分別為 z-0 與 z-10） */}
             {(phase === 'TRACKING' || phase === 'REVEALING') && (
-              <video ref={videoRef} className="camera-layer" playsInline muted></video>
+              <video ref={videoRef} className="camera-layer z-0" playsInline muted></video>
             )}
             {phase === 'TRACKING' && (
               <canvas ref={trackerCanvasRef} className="camera-layer z-10 pointer-events-none"></canvas>
             )}
 
-            {/* 🎯 靜態高質感撲克牌瞄準引導框 (標準黃金比例 63:88) */}
+            {/* 🎯 頂層：核心 UI 面板（z-30 確保絕對壓在相機畫面之上！） */}
             {phase === 'TRACKING' && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
-                <div className="w-[62vw] max-w-[260px] aspect-[63/88] border-2 border-dashed border-[#deff9a]/40 bg-black/10 backdrop-blur-[0.5px] rounded-2xl flex flex-col items-center justify-center relative animate-pulse">
-                  {/* 精美四角定位框線設計 */}
+              <div className="absolute inset-0 flex flex-col items-center justify-between py-12 z-30 pointer-events-none">
+                
+                {/* 上方狀態提示 */}
+                <div className="text-white/40 text-[10px] tracking-widest bg-black/50 backdrop-blur-sm px-4 py-1.5 rounded-full border border-white/10 shadow-lg">
+                  精神連結中...等候發牌召喚
+                </div>
+
+                {/* 中央靜態高質感撲克牌瞄準引導框 */}
+                <div className="w-[62vw] max-w-[260px] aspect-[63/88] border-2 border-dashed border-[#deff9a]/40 bg-black/20 backdrop-blur-[0.5px] rounded-2xl flex flex-col items-center justify-center relative animate-pulse shadow-[0_0_30px_rgba(0,0,0,0.6)]">
+                  {/* 精美四角定位高光 */}
                   <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#deff9a]"></div>
                   <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#deff9a]"></div>
                   <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#deff9a]"></div>
@@ -417,15 +416,31 @@
                     請將白牌放入框內
                   </span>
                 </div>
-                <div className="mt-5 text-white/30 text-[10px] tracking-widest bg-black/40 px-4 py-1.5 rounded-full border border-white/5">
-                  精神連結中...等待發牌
+
+                {/* 🔘 下方「手動強制觸發按鈕 / 拍照鍵」 */}
+                <div className="flex flex-col items-center gap-2">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation(); // 防止冒泡
+                      if (phase === 'TRACKING') {
+                        setPhase('REVEALING');
+                        executeARFreezeAndSynthesis();
+                      }
+                    }}
+                    className="pointer-events-auto active:scale-95 transition-transform w-16 h-16 rounded-full border-4 border-white/40 bg-zinc-900/80 backdrop-blur-md flex items-center justify-center shadow-[0_4px_20px_rgba(0,0,0,0.5)] focus:outline-none"
+                    title="強制顯影"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-red-600 animate-pulse"></div>
+                  </button>
+                  <span className="text-white/20 text-[9px] tracking-widest">手動強製顯影鍵</span>
                 </div>
+
               </div>
             )}
 
-            {/* AR 結凍畫面及緩慢顯影覆蓋層 */}
+            {/* 🔮 終極圖層：AR 結凍與融合顯影覆蓋層（最高層 z-50） */}
             {(phase === 'REVEALING') && (
-              <canvas ref={renderCanvasRef} className="display-layer z-30 animate-magic-reveal"></canvas>
+              <canvas ref={renderCanvasRef} className="display-layer z-50 animate-magic-reveal"></canvas>
             )}
           </div>
         );
