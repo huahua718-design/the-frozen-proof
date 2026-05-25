@@ -18,18 +18,23 @@
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
     
-    /* 鏡頭與 AR 畫布圖層基礎配置 */
-    .camera-layer { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-    .display-layer { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-
-    /* 8秒緩慢漸顯融合動畫 */
+    /* 10秒緩慢漸顯融合動畫 */
     @keyframes magicRevealWipe {
       0% { filter: blur(12px) brightness(2); opacity: 0; }
       20% { opacity: 0.6; }
       100% { filter: blur(0px) brightness(1); opacity: 1; }
     }
     .animate-magic-reveal {
-      animation: magicRevealWipe 8s ease-out forwards;
+      animation: magicRevealWipe 10s ease-out forwards;
+    }
+
+    /* 消失動畫 */
+    @keyframes finalDismiss {
+      0% { opacity: 1; filter: blur(0px); transform: scale(1); }
+      100% { opacity: 0; filter: blur(20px); transform: scale(0.95); translateY(-20px); }
+    }
+    .animate-final-dismiss {
+      animation: finalDismiss 3s ease-in-out forwards;
     }
   </style>
 </head>
@@ -71,11 +76,9 @@
       const trackedPointsRef = useRef(null);
       const forcedCardRef = useRef(null);
       const localStreamRef = useRef(null);
-      
-      // 🌟 核心防護：記錄本次表演的起始時間，容許 5 秒的網路誤差
       const sessionStartTime = useRef(Date.now() - 5000);
 
-      // 🧹 魔術師端初始化：一進入大廳，立刻清空該房間的舊有資料，確保表演乾淨
+      // 🧹 魔術師端初始化：清除房間舊訊號
       useEffect(() => {
         if (!isSpectator) {
           db.ref('twatch_rooms/' + roomId).set({ status: 'ready', timestamp: Date.now() });
@@ -88,19 +91,55 @@
         const roomRef = db.ref('twatch_rooms/' + roomId);
         roomRef.on('value', (snapshot) => {
           const data = snapshot.val();
-          
-          // 🌟 核心修正：只接收 timestamp 大於本次 sessionStartTime 的「全新訊號」
           if (data && data.card && data.timestamp > sessionStartTime.current) {
-            forcedCardRef.current = data.card;
-            // 只有在處於「相機追蹤模式」時收到新牌，才會自動觸發魔法
+            forcedCardRef.current = { ...data.card, t: data.timestamp };
             if (phase === 'TRACKING') {
               setPhase('REVEALING');
-              executeARFreezeAndSynthesis();
             }
           }
         });
         return () => roomRef.off();
       }, [roomId, isSpectator, phase]);
+
+      // 🔄 觀眾端魔術時間軸流向控制
+      useEffect(() => {
+        if (!isSpectator) return;
+        let tReveal, tDismiss, tIdle;
+
+        if (phase === 'REVEALING') {
+          // 確保 DOM 已更新，給予 50ms 緩衝後再擷取鏡頭畫面與繪製，徹底解決 Ref 為 null 的問題
+          setTimeout(() => {
+            executeARFreezeAndSynthesis();
+          }, 50);
+
+          tReveal = setTimeout(() => setPhase('REVEAL'), 10000); // 10秒顯影動畫結束
+          
+          const currentT = forcedCardRef.current?.t;
+          if (currentT) {
+            setTimeout(() => {
+              db.ref('twatch_rooms/' + roomId).get().then(snap => {
+                const data = snap.val();
+                if (data && data.timestamp === currentT) { db.ref('twatch_rooms/' + roomId).remove(); }
+              });
+            }, 60000);
+          }
+        }
+        if (phase === 'REVEAL') { 
+          tDismiss = setTimeout(() => setPhase('DISMISSING'), 15000); // 展示觀賞 15 秒
+        }
+        if (phase === 'DISMISSING') { 
+          tIdle = setTimeout(() => { 
+            forcedCardRef.current = null;
+            setPhase('INIT'); // 表演結束，回到初始畫面供下一輪點擊
+          }, 3000); 
+        }
+
+        return () => {
+          if (tReveal) clearTimeout(tReveal);
+          if (tDismiss) clearTimeout(tDismiss);
+          if (tIdle) clearTimeout(tIdle);
+        };
+      }, [phase, isSpectator, roomId]);
 
       const startCameraAndTracking = async () => {
         try {
@@ -117,10 +156,11 @@
             };
           }
         } catch (err) {
-          alert("請允許前鏡頭權限以進行心靈顯影偵測。");
+          alert("請允許鏡頭權限以進行心靈顯影偵測。");
         }
       };
 
+      // OpenCV 即時綠線追蹤
       useEffect(() => {
         if (!isTracking || phase !== 'TRACKING') return;
         let active = true;
@@ -230,6 +270,7 @@
         return () => { active = false; };
       }, [isTracking, phase]);
 
+      // 📸 核心重寫：相機定格與透視撲克牌合成
       const executeARFreezeAndSynthesis = () => {
         setIsTracking(false);
         const video = videoRef.current;
@@ -238,27 +279,33 @@
 
         const w = video.videoWidth;
         const h = video.videoHeight;
+        if (w === 0 || h === 0) return;
+
         renderCanvas.width = w;
         renderCanvas.height = h;
         const ctx = renderCanvas.getContext('2d');
 
+        // 1. 同步捕捉目前視訊畫面並做前鏡頭水平鏡像
         ctx.translate(w, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, w, h);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
 
+        // 2. 順利定格後關閉攝影機硬體（省電並解除硬體佔用鎖）
         if (localStreamRef.current) {
           localStreamRef.current.getTracks().forEach(t => t.stop());
         }
 
+        // 3. 取得追蹤定位點
         let targetPoints = trackedPointsRef.current;
         if (!targetPoints) {
           targetPoints = {
-            tl: { x: w*0.35, y: h*0.25 }, tr: { x: w*0.65, y: h*0.25 },
-            br: { x: w*0.65, y: h*0.75 }, bl: { x: w*0.35, y: h*0.75 }
+            tl: { x: w*0.35, y: h*0.22 }, tr: { x: w*0.65, y: h*0.22 },
+            br: { x: w*0.65, y: h*0.78 }, bl: { x: w*0.35, y: h*0.78 }
           };
         }
 
+        // 4. 載入並合成撲克牌圖片
         const cardData = forcedCardRef.current;
         if (cardData && cardData.imageUrl) {
           const cardImg = new Image();
@@ -266,16 +313,22 @@
           cardImg.onload = () => {
             drawPerspectiveCard(ctx, cardImg, targetPoints, w);
           };
+          cardImg.onerror = () => {
+            drawFallbackCard(ctx, cardData, targetPoints, w); // 圖片破圖防護
+          };
         } else {
-          // 若手動點擊拍照而無指定花色時，預設顯示黑桃A
           const backupImg = new Image();
-          backupImg.src = "./cards/spade_1.png";
+          backupImg.src = "./cards/spade_1.png"; // 預設黑桃A
           backupImg.onload = () => {
             drawPerspectiveCard(ctx, backupImg, targetPoints, w);
+          };
+          backupImg.onerror = () => {
+            drawFallbackCard(ctx, { icon: '♠', value: 'A', color: 'text-slate-900' }, targetPoints, w);
           };
         }
       };
 
+      // 📐 矩陣透視形變投影演算法
       const drawPerspectiveCard = (ctx, img, pts, canvasWidth) => {
         const tl = { x: canvasWidth - pts.tr.x, y: pts.tr.y };
         const tr = { x: canvasWidth - pts.tl.x, y: pts.tl.y };
@@ -313,10 +366,37 @@
         ctx.closePath();
         ctx.clip();
 
-        ctx.globalCompositeOperation = 'multiply';
+        ctx.globalCompositeOperation = 'multiply'; // 陰影融合模式
         let xt = getTransform(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y, br.x, br.y);
         ctx.transform(xt[0], xt[1], xt[2], xt[3], xt[4], xt[5]);
         ctx.drawImage(img, 0, 0);
+        ctx.restore();
+      };
+
+      // 🛡️ 斷網/破圖安全防護：使用純前端繪圖引擎，防止魔術當眾穿幫
+      const drawFallbackCard = (ctx, card, pts, canvasWidth) => {
+        const tl = { x: canvasWidth - pts.tr.x, y: pts.tr.y };
+        const tr = { x: canvasWidth - pts.tl.x, y: pts.tl.y };
+        const br = { x: canvasWidth - pts.bl.x, y: pts.bl.y };
+        const bl = { x: canvasWidth - pts.br.x, y: pts.br.y };
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(tl.x, tl.y); ctx.lineTo(tr.x, tr.y); ctx.lineTo(br.x, br.y); ctx.lineTo(bl.x, bl.y);
+        ctx.closePath();
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#dddddd";
+        ctx.stroke();
+
+        const cx = (tl.x + tr.x + br.x + bl.x) / 4;
+        const cy = (tl.y + tr.y + br.y + bl.y) / 4;
+        ctx.fillStyle = card.color === 'text-red-600' ? '#dc2626' : '#0f172a';
+        ctx.font = "bold 32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`${card.value} ${card.icon}`, cx, cy);
         ctx.restore();
       };
 
@@ -373,11 +453,11 @@
         let isSecondHalf = (s1.dir === -1);
         let finalIndex = (s2.edge === s1.edge) ? suitBase + 12 : suitBase + (isSecondHalf ? 6 : 0) + ((s2.edge - s1.edge + 4) % 4 - 1) * 2 + (s2.dir === 1 ? 0 : 1);
         
-        const suits = [{n:'club', i:'♣'}, {n:'diamond', i:'♦'}, {n:'heart', i:'♥'}, {n:'spade', i:'♠'}];
+        const suits = [{n:'club', i:'♣', c:'text-slate-900'}, {n:'diamond', i:'♦', c:'text-red-600'}, {n:'heart', i:'♥', c:'text-red-600'}, {n:'spade', i:'♠', c:'text-slate-900'}];
         const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
         const s = suits[Math.floor(finalIndex/13)], v = values[finalIndex%13];
         const rv = {'J':'jack','Q':'queen','K':'king','A':'1'}[v] || v;
-        sendCard({ icon: s.i, value: v, imageUrl: `./cards/${s.n}_${rv}.png` });
+        sendCard({ icon: s.i, color: s.c, value: v, imageUrl: `./cards/${s.n}_${rv}.png` });
       };
 
       // --- 觀眾端渲染介面 ---
@@ -385,30 +465,30 @@
         return (
           <div className="w-screen h-screen bg-black overflow-hidden relative" onPointerDown={handlePointerDown}>
             
-            {/* 【層級 100】進入按鈕 */}
+            {/* 【層級 100】點擊開啟鏡頭按鈕 */}
             {phase === 'INIT' && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 100 }} className="flex items-center justify-center bg-black">
-                <div className="text-white/40 text-sm border border-white/20 px-8 py-4 rounded-full animate-pulse tracking-wider bg-zinc-900/50">
+                <div className="text-white/40 text-sm border border-white/20 px-8 py-4 rounded-full animate-pulse tracking-wider bg-zinc-900/50 cursor-pointer">
                   進入心靈顯影空間 (點擊開啟鏡頭)
                 </div>
               </div>
             )}
             
-            {/* 【層級 10】相機底圖 */}
+            {/* 【層級 10】動態視訊鏡頭 */}
             {(phase === 'TRACKING' || phase === 'REVEALING') && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 10 }}>
                 <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} playsInline muted></video>
               </div>
             )}
             
-            {/* 【層級 20】綠色追蹤線框 */}
+            {/* 【層級 20】OpenCV 綠線追蹤框 */}
             {phase === 'TRACKING' && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
                 <canvas ref={trackerCanvasRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}></canvas>
               </div>
             )}
 
-            {/* 🎯 【層級 30】瞄準框與拍照按鈕 */}
+            {/* 【層級 30】UI 互動介面：包含白色虛線框與手動拍照鈕 */}
             {phase === 'TRACKING' && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 30, pointerEvents: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 
@@ -416,14 +496,12 @@
                   <span className="text-[#deff9a] text-sm tracking-widest font-bold shadow-black drop-shadow-md">將白牌放入框內</span>
                 </div>
 
-                {/* 獨立紅按鈕區塊，強制攔截點擊 */}
                 <div style={{ position: 'absolute', bottom: '40px', pointerEvents: 'auto' }} className="flex flex-col items-center">
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       if (phase === 'TRACKING') {
-                        setPhase('REVEALING');
-                        executeARFreezeAndSynthesis();
+                        setPhase('REVEALING'); // 驅動時間軸進入擷取與漸顯
                       }
                     }}
                     className="w-[72px] h-[72px] rounded-full border-4 border-white bg-black/60 flex items-center justify-center active:scale-90 transition-transform shadow-2xl"
@@ -435,10 +513,14 @@
               </div>
             )}
 
-            {/* 【層級 40】凍結與魔法顯影畫面 */}
-            {(phase === 'REVEALING') && (
+            {/* 🎯【層級 40】終極持久化畫布：動態凍結照片、漸顯與消失皆在此處理 */}
+            {(phase === 'REVEALING' || phase === 'REVEAL' || phase === 'DISMISSING') && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 40 }}>
-                <canvas ref={renderCanvasRef} className="animate-magic-reveal" style={{ width: '100%', height: '100%', objectFit: 'cover' }}></canvas>
+                <canvas 
+                  ref={renderCanvasRef} 
+                  className={phase === 'REVEALING' ? 'animate-magic-reveal' : phase === 'DISMISSING' ? 'animate-final-dismiss' : ''} 
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                ></canvas>
               </div>
             )}
             
