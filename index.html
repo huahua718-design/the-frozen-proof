@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (顯影完自動斷線版)</title>
+    <title>The Frozen Proof - 時空留痕 (魔術師端隱形狀態燈版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -70,6 +70,14 @@
             cursor: pointer;
         }
 
+        /* 🌟 魔術師右下角隱形控制與狀態燈 */
+        #master-lock-toggle {
+            position: fixed; bottom: 24px; right: 24px; width: 44px; height: 44px;
+            border-radius: 50%; background: rgba(255,255,255,0.08);
+            z-index: 200; cursor: pointer; display: none;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5); transition: all 0.4s ease;
+        }
+
         @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
     </style>
 </head>
@@ -97,6 +105,8 @@
 
 <div id="gesture-zone"></div>
 
+<div id="master-lock-toggle"></div>
+
 <div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.05); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
 
 <script>
@@ -122,6 +132,7 @@
     let isMaster = (mode === 'master');
 
     let strokes = [];
+    let isReadAllowed = true; // 控制觀眾端是否允許與通訊同步
 
     window.onload = () => {
         if (isMaster) {
@@ -138,7 +149,10 @@
     /** [3] 魔術師控制端邏輯 (Master) **/
     function setupMasterMode() {
         const ui = document.getElementById('master-ui');
+        const lockBtn = document.getElementById('master-lock-toggle');
+        
         ui.style.display = 'flex';
+        lockBtn.style.display = 'block'; // 只有魔術師模式看得到燈號按鈕
         document.getElementById('gesture-zone').style.display = 'block';
         
         currentRoom = "9527"; 
@@ -146,8 +160,23 @@
         const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
         document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
 
+        // 初始化通訊狀態同步 (預設開啟)
+        db.ref(`twatch_rooms/${currentRoom}/status`).update({ readAllowed: true });
+        updateLockIndicator(true);
+
         ui.addEventListener('click', (e) => {
             ui.style.display = 'none';
+        });
+
+        // 🌟 點擊右下角隱形燈號：切換開線與斷線狀態
+        lockBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // 防止點擊穿透到大廳
+            isReadAllowed = !isReadAllowed;
+            
+            db.ref(`twatch_rooms/${currentRoom}/status`).update({
+                readAllowed: isReadAllowed
+            });
+            updateLockIndicator(isReadAllowed);
         });
 
         window.addEventListener('dblclick', (e) => {
@@ -157,6 +186,18 @@
         });
 
         initGestureEngine();
+    }
+
+    // 🌟 更新魔術師端右下角狀態燈外觀
+    function updateLockIndicator(allowed) {
+        const lockBtn = document.getElementById('master-lock-toggle');
+        if (allowed) {
+            lockBtn.style.background = '#deff9a'; // 連線中：發亮綠色
+            lockBtn.style.boxShadow = '0 0 15px #deff9a';
+        } else {
+            lockBtn.style.background = 'rgba(255,255,255,0.08)'; // 斷線中：暗色微透
+            lockBtn.style.boxShadow = 'none';
+        }
     }
 
     function initGestureEngine() {
@@ -248,6 +289,7 @@
     }
 
     function sendPayloadToFirebase(cardName) {
+        if(!isReadAllowed) return; // 如果被魔術師切斷通訊，就不發送任何資訊
         db.ref(`twatch_rooms/${currentRoom}`).update({
             forcedCard: cardName,
             timestamp: Date.now()
@@ -279,9 +321,20 @@
             alert("請允許網頁相機存取權限，否則無法與心靈感應連線。");
         }
 
+        // 🌟 監聽魔術師的狀態開關
         db.ref(`twatch_rooms/${roomId}`).on('value', (snapshot) => {
             const data = snapshot.val();
-            if (data && data.forcedCard) {
+            if (!data) return;
+
+            // 檢查魔術師是否發出了「斷線/關閉連線」指令
+            if (data.status && data.status.readAllowed === false) {
+                db.ref(`twatch_rooms/${roomId}`).off('value'); // 斷開 Firebase 即時監聽
+                receivedCardName = null;
+                console.log("已被主控端強制中斷通訊。");
+                return;
+            }
+
+            if (data.forcedCard) {
                 receivedCardName = data.forcedCard;
                 checkTriggerCondition(); 
             }
@@ -300,7 +353,6 @@
         const ctx = canvas.getContext('2d');
         
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         
@@ -486,13 +538,11 @@
         nativeImg.className = "fixed inset-0 w-full h-full object-cover z-[2000]";
         document.body.appendChild(nativeImg);
 
-        // 🌟 核心自動化安全斷線機制：
-        // 撲克牌完全顯影完成後，強制移除 Firebase 的所有監聽，並將資料庫路徑設為 null 徹底斷線。
+        // 顯影完依舊自動斷連觀眾端，保證雙重安全
         try {
             if (currentRoom) {
                 db.ref(`twatch_rooms/${currentRoom}`).off('value'); 
                 currentRoom = null; 
-                console.log("魔術演繹完畢，已安全自動離線。");
             }
         } catch(e) {
             console.error(e);
