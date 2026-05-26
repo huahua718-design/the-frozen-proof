@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (95%內縮防穿幫版)</title>
+    <title>The Frozen Proof - 時空留痕 (移除遮罩完美對齊版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -29,15 +29,15 @@
             transform: scaleX(-1); 
         }
 
-        /* 科技感瞄準框 UI (父容器) */
+        /* 🌟 核心修正：將原本的 border 40px 及背景色全部移除，改為全透明，徹底解決重疊與視覺干擾 */
         .viewfinder { 
             position: fixed; inset: 0; z-index: 20; 
-            border: 40px solid rgba(0,0,0,0.6); 
+            background: transparent;
             display: flex; align-items: center;
             pointer-events: none; transition: opacity 0.5s;
         }
 
-        /* 綠色方框：縮小至 2/3，位於左下角象限中央 */
+        /* 綠色方框：維持 95% 置中顯影尺寸對齊，位於左下角象限中央 */
         .viewfinder-box {
             width: calc(65vw * 0.6666); 
             height: calc(91vw * 0.6666);
@@ -409,7 +409,7 @@
                     ctx.globalAlpha = Math.min(opacity, 1);
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    // 🌟 核心微調：將撲克牌寬高縮小為綠框的 95%，保留安全的內縮空隙
+                    // 將撲克牌寬高縮小為綠框的 95%，保留安全的內縮空隙
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95; 
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95; 
                     
@@ -445,7 +445,7 @@
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 🌟 備用機制同步微調：縮小為 95% 並完美置中
+                    // 備用機制同步微調：縮小為 95% 並完美置中
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95;
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95;
                     
