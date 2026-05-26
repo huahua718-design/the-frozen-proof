@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (鏡像完美修復版)</title>
+    <title>The Frozen Proof - 時空留痕 (象限縮小版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -23,28 +23,41 @@
         .btn-magic { background: rgba(255,255,255,0.05); border: 1px solid var(--accent); color: var(--accent); padding: 14px 28px; border-radius: 50px; font-weight: 500; transition: all 0.3s; }
         .btn-magic:active { transform: scale(0.95); background: var(--accent); color: #000; }
 
-        /* 全螢幕前置相機預覽（符合日常自拍鏡像習慣） */
+        /* 全螢幕前置相機預覽 */
         #camera-view { 
             position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; 
             transform: scaleX(-1); 
         }
 
-        /* 科技感瞄準框 UI (寬度固定為 65vw) */
+        /* 科技感瞄準框 UI (父容器，不再使用 justify-center) */
         .viewfinder { 
             position: fixed; inset: 0; z-index: 20; 
             border: 40px solid rgba(0,0,0,0.6); 
-            display: flex; align-items: center; justify-content: center;
+            display: flex; align-items: center;
             pointer-events: none; transition: opacity 0.5s;
         }
+
+        /* 🌟核心修改 1：將框框縮小至 2/3 (乘以 0.6666)，並利用絕對定位移動至左下角象限中央 */
         .viewfinder-box {
-            width: 65vw; height: 91vw; max-width: 280px; max-height: 392px;
+            /* 原始尺寸: width: 65vw; height: 91vw; max-width: 280px; max-height: 392px; */
+            width: calc(65vw * 0.6666); 
+            height: calc(91vw * 0.6666);
+            max-width: calc(280px * 0.6666); /* 187px */
+            max-height: calc(392px * 0.6666); /* 261px */
             border: 2px solid var(--accent); border-radius: 16px;
             box-shadow: 0 0 30px rgba(222, 255, 154, 0.25);
-            position: relative;
+            position: absolute;
+            
+            /* 定位到左下角象限的中央 (X: 25%, Y: 75%) */
+            left: 25%;
+            top: 75%;
+            transform: translate(-50%, -50%); /* 抵銷自身寬高，使中心點對齊 (25%, 75%) */
         }
+
+        /* 標籤文字同步縮小，防止穿幫 */
         .viewfinder-box::after {
-            content: 'LOCKING TIME...'; position: absolute; top: -35px; left: 0; right: 0;
-            text-align: center; color: var(--accent); font-size: 11px; letter-spacing: 4px;
+            content: 'LOCKING TIME...'; position: absolute; top: calc(-35px * 0.6666); left: 0; right: 0;
+            text-align: center; color: var(--accent); font-size: calc(11px * 0.6666); letter-spacing: calc(4px * 0.6666);
             animation: pulse 1.8s infinite;
         }
 
@@ -91,7 +104,7 @@
 <div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.05); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
 
 <script>
-    /** [1] FIREBASE 環境設定 **/
+    /** [1] FIREBASE 環境設定 (金鑰與您提供的完全一致) **/
     const firebaseConfig = {
         apiKey: "AIzaSyCjTKS43McbUswz3afjcQpPjamhoMb-X9c",
         authDomain: "magic-card-app-2f24f.firebaseapp.com",
@@ -132,7 +145,7 @@
         ui.style.display = 'flex';
         document.getElementById('gesture-zone').style.display = 'block';
         
-        currentRoom = "9527"; 
+        currentRoom = "9527"; // 固定房號
 
         const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
         document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
@@ -261,6 +274,7 @@
         document.getElementById('viewer-ui').style.display = 'flex';
         
         try {
+            // 開啟前置自拍鏡頭 (facingMode: 'user')
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, 
                 audio: false 
@@ -290,10 +304,9 @@
         canvas.height = window.innerHeight * dpr;
         const ctx = canvas.getContext('2d');
         
-        // 1. 先重設矩陣確保乾淨
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         
-        // 2. 拍照瞬間執行水平翻轉（讓存下來的照片跟自拍預覽完全一樣）
+        // 拍照瞬間執行水平翻轉 (使存下來的照片跟自拍預覽完全一樣)
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         
@@ -316,12 +329,8 @@
         }
         
         ctx.drawImage(video, sX, sY, dW, dH);
-        
-        // 導出已完美鏡像的靜態 Base64 照片
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
-        
-        // 3. 🌟關鍵修復：導出後立刻將 Canvas 矩陣還原！避免殘留翻轉狀態干擾後續動畫
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // 拍照後立刻還原矩陣
         
         canvas.style.display = 'block';
         document.getElementById('viewer-ui').style.opacity = '0';
@@ -384,19 +393,24 @@
                 const animateRendering = () => {
                     opacity += 0.002; 
                     
-                    // 🌟關鍵修復：每一影格都強制清除任何殘留矩陣，確保底圖不發生二次翻轉
-                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    ctx.setTransform(1, 0, 0, 1, 0, 0); // 每一格都還原矩陣，防止底圖發生二次翻轉
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(bgImg, 0, 0); // 繪製完全不跳動、不翻轉的正向自拍照
+                    ctx.drawImage(bgImg, 0, 0); // 繪製完全不跳動的正向底圖自拍照
                     
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    const cardWidth = canvas.width * 0.65 * 0.95; 
+                    // 🌟核心修改 2：將畫布中的撲克牌縮小至 2/3，並移動至畫面左下角象限中央
+                    // 原始寬度: `canvas.width * 0.65 * 0.95`
+                    const cardWidth = (canvas.width * 0.65 * 0.95) * (2 / 3); 
                     const cardHeight = cardWidth * 1.42; 
-                    const targetX = (canvas.width - cardWidth) / 2;
-                    const targetY = (canvas.height - cardHeight) / 2;
+                    
+                    // 移動至左下角象限中央。 
+                    // 左側象限中心 X 為 `canvas.width / 4`
+                    // 下側象限中心 Y 為 `canvas.height / 4 * 3`
+                    const targetX = (canvas.width / 4) - (cardWidth / 2);
+                    const targetY = (canvas.height * 0.75) - (cardHeight / 2);
                     
                     ctx.drawImage(cardImg, targetX, targetY, cardWidth, cardHeight);
                     ctx.restore();
@@ -415,7 +429,7 @@
                 const animateFallback = () => {
                     opacity += 0.005;
                     
-                    // 🌟關鍵修復：備用文字渲染影格也同步加入強置重設
+                    // 🌟核心修改 3：備用備份備忘機制也同步修復尺寸比例
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(bgImg, 0, 0);
@@ -423,10 +437,11 @@
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    const cardWidth = canvas.width * 0.65 * 0.95;
+                    // 備份機制也同步縮小為 2/3
+                    const cardWidth = (canvas.width * 0.65 * 0.95) * (2 / 3);
                     const cardHeight = cardWidth * 1.42;
-                    const targetX = (canvas.width - cardWidth) / 2;
-                    const targetY = (canvas.height - cardHeight) / 2;
+                    const targetX = (canvas.width / 4) - (cardWidth / 2);
+                    const targetY = (canvas.height * 0.75) - (cardHeight / 2);
                     
                     ctx.fillStyle = "#ffffff";
                     ctx.shadowColor = "rgba(0,0,0,0.5)";
@@ -458,7 +473,7 @@
 
     function finalizeAndInjectNativeImage() {
         const ctx = canvas.getContext('2d');
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // 保險起見，輸出前再次確認矩陣清空
+        ctx.setTransform(1, 0, 0, 1, 0, 0); 
         
         const finalDataURL = canvas.toDataURL('image/jpeg', 0.95);
         const nativeImg = document.createElement('img');
