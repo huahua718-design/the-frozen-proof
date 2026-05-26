@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (隨機房間自動化版)</title>
+    <title>The Frozen Proof - 時空留痕 (極簡隱蔽版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -70,14 +70,6 @@
             cursor: pointer;
         }
 
-        /* 魔術師右下角隱形控制與狀態燈 */
-        #master-lock-toggle {
-            position: fixed; bottom: 24px; right: 24px; width: 44px; height: 44px;
-            border-radius: 50%; background: rgba(255,255,255,0.08);
-            z-index: 200; cursor: pointer; display: none;
-            box-shadow: 0 0 10px rgba(0,0,0,0.5); transition: all 0.4s ease;
-        }
-
         @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
     </style>
 </head>
@@ -101,12 +93,9 @@
     <div id="qrcode-container" class="bg-white p-5 rounded-3xl shadow-2xl">
         <img id="qrcode-img" src="" alt="QR Code" class="w-60 h-60">
     </div>
-    <div id="room-display" class="text-white/40 text-xs mt-4 tracking-widest font-mono"></div>
 </div>
 
 <div id="gesture-zone"></div>
-
-<div id="master-lock-toggle"></div>
 
 <div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.05); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
 
@@ -133,7 +122,6 @@
     let isMaster = (mode === 'master');
 
     let strokes = [];
-    let isReadAllowed = true; 
 
     window.onload = () => {
         if (isMaster) {
@@ -150,41 +138,24 @@
     /** [3] 魔術師控制端邏輯 (Master) **/
     function setupMasterMode() {
         const ui = document.getElementById('master-ui');
-        const lockBtn = document.getElementById('master-lock-toggle');
         
         ui.style.display = 'flex';
-        lockBtn.style.display = 'block'; 
         document.getElementById('gesture-zone').style.display = 'block';
         
-        // 🌟 核心升級：每次開啟網頁時，隨機產生 1000 ~ 9999 之間的 4 位數純數字房間號
+        // 背景依然保持隨機產生 4 位數純數字房間號碼，確保不重複
         currentRoom = Math.floor(1000 + Math.random() * 9000).toString(); 
         
-        // 在大廳最下方微弱顯示當前隨機生成的房號，供魔術師雙重確認
-        document.getElementById('room-display').innerText = `ROOM ID: ${currentRoom}`;
-
-        // 🌟 自動產生帶有隨機房號參數的觀眾端網址
+        // 自動產生帶有隨機房號參數的觀眾端網址
         const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
         
-        // 🌟 隨之產生對應的全新 QR Code 圖像
+        // 隨之產生對應的全新 QR Code 圖像
         document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
 
-        // 🌟 自動化：Firebase 會偵測並動態建立此隨機房間，並預設開啟通訊開關
+        // 初始化通訊狀態為開啟
         db.ref(`twatch_rooms/${currentRoom}/status`).update({ readAllowed: true });
-        updateLockIndicator(true);
 
         ui.addEventListener('click', (e) => {
             ui.style.display = 'none';
-        });
-
-        // 點擊右下角隱形燈號：切換開線與斷線狀態
-        lockBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); 
-            isReadAllowed = !isReadAllowed;
-            
-            db.ref(`twatch_rooms/${currentRoom}/status`).update({
-                readAllowed: isReadAllowed
-            });
-            updateLockIndicator(isReadAllowed);
         });
 
         window.addEventListener('dblclick', (e) => {
@@ -194,18 +165,6 @@
         });
 
         initGestureEngine();
-    }
-
-    // 更新魔術師端右下角狀態燈外觀
-    function updateLockIndicator(allowed) {
-        const lockBtn = document.getElementById('master-lock-toggle');
-        if (allowed) {
-            lockBtn.style.background = '#deff9a'; 
-            lockBtn.style.boxShadow = '0 0 15px #deff9a';
-        } else {
-            lockBtn.style.background = 'rgba(255,255,255,0.08)'; 
-            lockBtn.style.boxShadow = 'none';
-        }
     }
 
     function initGestureEngine() {
@@ -297,7 +256,6 @@
     }
 
     function sendPayloadToFirebase(cardName) {
-        if(!isReadAllowed) return; 
         db.ref(`twatch_rooms/${currentRoom}`).update({
             forcedCard: cardName,
             timestamp: Date.now()
@@ -329,7 +287,6 @@
             alert("請允許網頁相機存取權限，否則無法與心靈感應連線。");
         }
 
-        // 監聽動態傳入的隨機房號
         db.ref(`twatch_rooms/${roomId}`).on('value', (snapshot) => {
             const data = snapshot.val();
             if (!data) return;
@@ -337,7 +294,6 @@
             if (data.status && data.status.readAllowed === false) {
                 db.ref(`twatch_rooms/${roomId}`).off('value'); 
                 receivedCardName = null;
-                console.log("已被主控端強制中斷通訊。");
                 return;
             }
 
@@ -545,7 +501,8 @@
         nativeImg.className = "fixed inset-0 w-full h-full object-cover z-[2000]";
         document.body.appendChild(nativeImg);
 
-        // 顯影完畢後自動離線
+        // 🌟 核心自動化安全斷線機制依然保留：
+        // 觀眾端完全顯影完畢後，強制解除監聽。魔術師不需要按任何按鈕，系統演完自動「過河拆橋」。
         try {
             if (currentRoom) {
                 db.ref(`twatch_rooms/${currentRoom}`).off('value'); 
