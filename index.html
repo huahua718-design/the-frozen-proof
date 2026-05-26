@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (尺寸完美貼合版)</title>
+    <title>The Frozen Proof - 時空留痕 (95%內縮防穿幫版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -409,13 +409,17 @@
                     ctx.globalAlpha = Math.min(opacity, 1);
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    // 🌟 核心修正：移除之前的 (2/3) 縮放，讓撲克牌的寬高直接對齊綠框在畫布中的完整尺寸
-                    const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent; 
-                    const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent; 
+                    // 🌟 核心微調：將撲克牌寬高縮小為綠框的 95%，保留安全的內縮空隙
+                    const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95; 
+                    const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95; 
                     
-                    // 直接將撲克牌的左上角，對齊拍照瞬間所抓取到的綠色方框左上角
-                    const targetX = canvas.width * window.domInfoPercent.domAlignXPercent; 
-                    const targetY = canvas.height * window.domInfoPercent.domAlignYPercent; 
+                    // 獲取綠色方框在畫布中的中心點
+                    const boxCenterX = canvas.width * (window.domInfoPercent.domAlignXPercent + window.domInfoPercent.domWidthPercent / 2);
+                    const boxCenterY = canvas.height * (window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent / 2);
+                    
+                    // 從中心點反推 95% 卡牌的左上角起點，確保卡牌完美置中於綠色方框內
+                    const targetX = boxCenterX - (cardWidth / 2); 
+                    const targetY = boxCenterY - (cardHeight / 2); 
                     
                     ctx.drawImage(cardImg, targetX, targetY, cardWidth, cardHeight);
                     ctx.restore();
@@ -441,17 +445,21 @@
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 🌟 備用機制同步修正：尺寸完全填滿綠色方框
-                    const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent;
-                    const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent;
-                    const targetX = canvas.width * window.domInfoPercent.domAlignXPercent;
-                    const targetY = canvas.height * window.domInfoPercent.domAlignYPercent;
+                    // 🌟 備用機制同步微調：縮小為 95% 並完美置中
+                    const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95;
+                    const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95;
+                    
+                    const boxCenterX = canvas.width * (window.domInfoPercent.domAlignXPercent + window.domInfoPercent.domWidthPercent / 2);
+                    const boxCenterY = canvas.height * (window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent / 2);
+                    
+                    const targetX = boxCenterX - (cardWidth / 2);
+                    const targetY = boxCenterY - (cardHeight / 2);
                     
                     ctx.fillStyle = "#ffffff";
                     ctx.shadowColor = "rgba(0,0,0,0.5)";
                     ctx.shadowBlur = 20;
                     ctx.beginPath();
-                    ctx.roundRect(targetX, targetY, cardWidth, cardHeight, 16);
+                    ctx.roundRect(targetX, targetY, cardWidth, cardHeight, 14);
                     ctx.fill();
                     
                     ctx.fillStyle = cardName.includes('heart') || cardName.includes('diamond') ? '#dc2626' : '#0f172a';
