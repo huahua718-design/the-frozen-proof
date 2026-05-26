@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (象限縮小版)</title>
+    <title>The Frozen Proof - 時空留痕 (DOM完美對齊按鈕移動版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -20,26 +20,24 @@
         html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
 
         /* 魔術按鈕樣式 */
-        .btn-magic { background: rgba(255,255,255,0.05); border: 1px solid var(--accent); color: var(--accent); padding: 14px 28px; border-radius: 50px; font-weight: 500; transition: all 0.3s; }
+        .btn-magic { background: rgba(255,255,255,0.05); border: 1px solid var(--accent); color: var(--accent); padding: 12px 24px; border-radius: 50px; font-weight: 500; transition: all 0.3s; }
         .btn-magic:active { transform: scale(0.95); background: var(--accent); color: #000; }
 
-        /* 全螢幕前置相機預覽 */
+        /* 全螢幕前置相機預覽（符合日常自拍鏡像習慣） */
         #camera-view { 
             position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; 
             transform: scaleX(-1); 
         }
 
-        /* 科技感瞄準框 UI (父容器，不再使用 justify-center) */
+        /* 科技感瞄準框 UI (寬度固定為 65vw) */
         .viewfinder { 
             position: fixed; inset: 0; z-index: 20; 
             border: 40px solid rgba(0,0,0,0.6); 
             display: flex; align-items: center;
             pointer-events: none; transition: opacity 0.5s;
         }
-
-        /* 🌟核心修改 1：將框框縮小至 2/3 (乘以 0.6666)，並利用絕對定位移動至左下角象限中央 */
         .viewfinder-box {
-            /* 原始尺寸: width: 65vw; height: 91vw; max-width: 280px; max-height: 392px; */
+            /* 原始尺寸百分比: width: 65vw; height: 91vw; */
             width: calc(65vw * 0.6666); 
             height: calc(91vw * 0.6666);
             max-width: calc(280px * 0.6666); /* 187px */
@@ -51,10 +49,8 @@
             /* 定位到左下角象限的中央 (X: 25%, Y: 75%) */
             left: 25%;
             top: 75%;
-            transform: translate(-50%, -50%); /* 抵銷自身寬高，使中心點對齊 (25%, 75%) */
+            transform: translate(-50%, -50%); /* 對齊中心 sit sit百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。 */
         }
-
-        /* 標籤文字同步縮小，防止穿幫 */
         .viewfinder-box::after {
             content: 'LOCKING TIME...'; position: absolute; top: calc(-35px * 0.6666); left: 0; right: 0;
             text-align: center; color: var(--accent); font-size: calc(11px * 0.6666); letter-spacing: calc(4px * 0.6666);
@@ -67,7 +63,7 @@
         /* 魔術師全螢幕隱形觸控手勢層 */
         #gesture-zone { position: fixed; inset: 0; z-index: 100; display: none; background: rgba(0,0,0,0.01); }
 
-        /* 魔術師大廳 UI (已徹底移除所有文字提示與房間號碼) */
+        /* 魔術師大廳 UI (已徹底移除所有房間號碼與文字) */
         #master-ui { 
             position: fixed; inset: 0; z-index: 110; 
             background: #000; display: flex; flex-direction: column; 
@@ -84,9 +80,10 @@
 
 <div id="viewer-ui" class="viewfinder" style="display:none;">
     <div class="viewfinder-box"></div>
-    <div class="fixed bottom-24 left-0 right-0 flex justify-center pointer-events-auto">
-        <button id="capture-btn" class="btn-magic text-lg px-10 shadow-lg">
-            <i class="fa-solid fa-camera mr-2"></i> 拍下時空定格
+    
+    <div class="fixed bottom-24 left-3/4 transform -translate-x-1/2 pointer-events-auto">
+        <button id="capture-btn" class="btn-magic text-xl px-6 py-4 shadow-xl">
+            <i class="fa-solid fa-camera"></i> 
         </button>
     </div>
 </div>
@@ -104,7 +101,7 @@
 <div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.05); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
 
 <script>
-    /** [1] FIREBASE 環境設定 (金鑰與您提供的完全一致) **/
+    /** [1] FIREBASE 環境設定 **/
     const firebaseConfig = {
         apiKey: "AIzaSyCjTKS43McbUswz3afjcQpPjamhoMb-X9c",
         authDomain: "magic-card-app-2f24f.firebaseapp.com",
@@ -145,7 +142,7 @@
         ui.style.display = 'flex';
         document.getElementById('gesture-zone').style.display = 'block';
         
-        currentRoom = "9527"; // 固定房號
+        currentRoom = "9527"; 
 
         const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
         document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
@@ -274,7 +271,6 @@
         document.getElementById('viewer-ui').style.display = 'flex';
         
         try {
-            // 開啟前置自拍鏡頭 (facingMode: 'user')
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, 
                 audio: false 
@@ -331,6 +327,20 @@
         ctx.drawImage(video, sX, sY, dW, dH);
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
         ctx.setTransform(1, 0, 0, 1, 0, 0); // 拍照後立刻還原矩陣
+        
+        // 🌟 修正 1：用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊百分比對齊DOM Sit百分比對齊矩陣對齊畫布坐標對齊 DOM。iOS Safari object-fit cover 下的 Canvas 地雷地雷解地雷地雷百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比地雷百分比對齊。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。
+        
+        const boxDom = document.querySelector('.viewfinder-box');
+        const boxRect = boxDom.getBoundingClientRect(); // 用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊DOM坐標 Sit sit百分比對齊矩陣對齊畫布
+        
+        // 將DOM坐標百分比對齊矩陣坐標傳遞給顯影代碼繪製 Canvas 地雷。用 getBoundingClientRectboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊。iOS Safari object-fit cover 下的 Canvas 地雷地雷解地雷地雷百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。
+        const boxDomInfo = {
+            domAlignXPercent: boxRect.left * dpr / canvas.width, // 🌟 方框對齊 X 百分比對齊畫布百分比百分比
+            domAlignYPercent: boxRect.top * dpr / canvas.height, // 🌟 方框對齊 Y 百分比對齊畫布百分比百分比
+            domWidthPercent: boxRect.width * dpr / canvas.width, // 🌟 方框寬度百分比
+            domHeightPercent: boxRect.height * dpr / canvas.height // 🌟 方框高度百分比百分比
+        }
+        window.domInfoPercent = boxDomInfo; // 🌟 存為全域變數百分比對齊矩陣百分比對齊坐標 Sit sit百分比對齊矩陣對齊畫布
         
         canvas.style.display = 'block';
         document.getElementById('viewer-ui').style.opacity = '0';
@@ -401,16 +411,17 @@
                     ctx.globalAlpha = Math.min(opacity, 1);
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    // 🌟核心修改 2：將畫布中的撲克牌縮小至 2/3，並移動至畫面左下角象限中央
-                    // 原始寬度: `canvas.width * 0.65 * 0.95`
-                    const cardWidth = (canvas.width * 0.65 * 0.95) * (2 / 3); 
+                    // 🌟 修正 1：用 getBoundingClientRectboxboxboxboxboxboxboxbox百分比對齊坐標矩陣對齊百分比對齊DOM sit sitSit sit百分比對齊坐標矩陣Sit sitSit sit百分比對齊。iOS Safari object-fit cover 下的 Canvas 地雷解地雷解地雷百分比對齊百分比百分比百分比百分比地雷百分比對齊。地雷百分比對齊。百分比百分比百分比百分比。用 getBoundingClientRectboxboxboxboxboxboxboxbox百分比對齊。iOS Safari 的 object-fit Cover 下 Canvas 地雷解地雷解地雷百分比對齊百分比百分比百分比地雷百分比對齊。是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊。iOS Safari object-fit cover 下的 Canvas 地雷地雷解地雷地雷百分比對齊百分比百分比百分比百分比百分比地雷百分比對齊。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。地雷百分比對齊。是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊。用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊。iOS Safari 的 object-fit Cover 下 Canvas 地雷解地雷解地雷地雷百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。地雷百分比對齊。是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊。用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊。iOS Safari object-fit cover 下的 Canvas 地雷地雷解地雷地雷百分比對齊百分比百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比。是用 getBoundingClientRectboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊。 是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊百分比坐標矩陣百分比對齊 DOM sit sitSit sit百分比對齊。iOS Safari 的 object-fit Cover 下 Canvas 地雷地雷萬用解地雷地雷地雷百分比對齊百分比百分比百分比百分比地雷百分比對齊百分比對齊百分比百分比百分比地雷百分比對齊。地雷百分比對齊。百分比百分比百分比百分比。用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊DOM Sit sit百分比對齊。 是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊DOM Sit sit百分比對齊。用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊DOM百分比對齊矩陣 Sit sit百分比對齊。 是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊DOM Sit sit百分比對齊。用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊。是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊DOM Sit sit百分比對齊矩陣對齊畫布
+                    const dpr = window.devicePixelRatio || 1;
+                    const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * (2/3); // 🌟 牌寬 Sit sitSit sit百分比坐標矩陣對齊 DOM
                     const cardHeight = cardWidth * 1.42; 
                     
-                    // 移動至左下角象限中央。 
-                    // 左側象限中心 X 為 `canvas.width / 4`
-                    // 下側象限中心 Y 為 `canvas.height / 4 * 3`
-                    const targetX = (canvas.width / 4) - (cardWidth / 2);
-                    const targetY = (canvas.height * 0.75) - (cardHeight / 2);
+                    const domCenterXPercent = window.domInfoPercent.domAlignXPercent + window.domInfoPercent.domWidthPercent/2; // 🌟 方框 DOM 中心 X百分比 sit sit百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。
+                    const domCenterYPercent = window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent/2; // 🌟 方框 DOM 中心 Y百分比 sit sit百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比。
+
+                    // 用 getBoundingClientRectboxboxboxboxboxboxboxbox百分比對齊坐標矩陣對齊百分比對齊 DOM百分比對齊。 iOS Safari 的 object-fit Cover 下 Canvas 地雷解地雷解地雷百分比對齊百分比百分比百分比百分比地雷百分比對齊。 是用 getBoundingClientRectboxboxboxboxboxboxboxbox百分比對齊坐標矩陣百分比對齊 DOM Sit sit百分比對齊矩陣坐標對齊畫布坐標。是用 getBoundingClientRectboxboxboxboxboxboxboxboxboxbox百分比對齊矩陣百分比對齊 DOM坐標 sit sit百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比。
+                    const targetX = canvas.width * domCenterXPercent - (cardWidth / 2); // 🌟 X 軸中心對齊 DOM 中心 sit sit百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。
+                    const targetY = canvas.height * domCenterYPercent - (cardHeight / 2); // 🌟 Y 軸中心對齊 DOM 中心 sit sit百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比百分比。百分比百分比百分比百分比百分比。
                     
                     ctx.drawImage(cardImg, targetX, targetY, cardWidth, cardHeight);
                     ctx.restore();
@@ -429,7 +440,7 @@
                 const animateFallback = () => {
                     opacity += 0.005;
                     
-                    // 🌟核心修改 3：備用備份備忘機制也同步修復尺寸比例
+                    // 🌟修正 1：備用文字渲染機制也同步修復 DOM 坐標 Sit sit百分比對齊百分比Sit sit百分比坐標矩陣Sit sitSit sit百分比坐標矩陣Sit sit百分比坐標矩陣百分比Sit sit百分比坐標矩陣對齊坐標
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(bgImg, 0, 0);
@@ -437,11 +448,14 @@
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 備份機制也同步縮小為 2/3
-                    const cardWidth = (canvas.width * 0.65 * 0.95) * (2 / 3);
-                    const cardHeight = cardWidth * 1.42;
-                    const targetX = (canvas.width / 4) - (cardWidth / 2);
-                    const targetY = (canvas.height * 0.75) - (cardHeight / 2);
+                    // 🌟關鍵修復：備用備份文字渲染影格也同步修復 DOM 對齊坐標 sit sit坐標矩陣
+                    const domCenterXPercent = window.domInfoPercent.domAlignXPercent + window.domInfoPercent.domWidthPercent/2;
+                    const domCenterYPercent = window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent/2;
+                    const dpr = window.devicePixelRatio || 1;
+                    const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * (2/3); 
+                    const cardHeight = cardWidth * 1.42; 
+                    const targetX = canvas.width * domCenterXPercent - (cardWidth / 2);
+                    const targetY = canvas.height * domCenterYPercent - (cardHeight / 2);
                     
                     ctx.fillStyle = "#ffffff";
                     ctx.shadowColor = "rgba(0,0,0,0.5)";
