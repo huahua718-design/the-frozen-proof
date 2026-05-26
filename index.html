@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (前置光感鏡像修正版)</title>
+    <title>The Frozen Proof - 時空留痕 (鏡像完美修復版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -23,7 +23,7 @@
         .btn-magic { background: rgba(255,255,255,0.05); border: 1px solid var(--accent); color: var(--accent); padding: 14px 28px; border-radius: 50px; font-weight: 500; transition: all 0.3s; }
         .btn-magic:active { transform: scale(0.95); background: var(--accent); color: #000; }
 
-        /* 🌟 修正 1：全螢幕前置相機預覽（水平翻轉，符合日常自拍鏡像習慣） */
+        /* 全螢幕前置相機預覽（符合日常自拍鏡像習慣） */
         #camera-view { 
             position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; 
             transform: scaleX(-1); 
@@ -132,7 +132,7 @@
         ui.style.display = 'flex';
         document.getElementById('gesture-zone').style.display = 'block';
         
-        currentRoom = "9527"; // 背景維持靜態房間號連線
+        currentRoom = "9527"; 
 
         const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
         document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
@@ -261,7 +261,6 @@
         document.getElementById('viewer-ui').style.display = 'flex';
         
         try {
-            // 🌟 修正：開啟前置自拍鏡頭 (facingMode: 'user')
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, 
                 audio: false 
@@ -286,17 +285,18 @@
     }
 
     function executeCameraCapture() {
-        // 🌟 修正 2：建立完全等比例於手機螢幕的 Canvas 容器，徹底解決各家鏡頭長寬比不同的縮放地雷
         const dpr = window.devicePixelRatio || 1;
         canvas.width = window.innerWidth * dpr;
         canvas.height = window.innerHeight * dpr;
         const ctx = canvas.getContext('2d');
         
-        // 🌟 修正 1：拍照時將 Canvas 水平翻轉，使拍下的照片跟前置預覽看到的自拍畫面完全一致
+        // 1. 先重設矩陣確保乾淨
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        
+        // 2. 拍照瞬間執行水平翻轉（讓存下來的照片跟自拍預覽完全一樣）
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         
-        // 萬用 Cover 圖像填滿演算法
         const vW = video.videoWidth;
         const vH = video.videoHeight;
         const canvasRatio = canvas.width / canvas.height;
@@ -317,8 +317,11 @@
         
         ctx.drawImage(video, sX, sY, dW, dH);
         
-        // 導出已鏡像同步好的標準背景照片
+        // 導出已完美鏡像的靜態 Base64 照片
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
+        
+        // 3. 🌟關鍵修復：導出後立刻將 Canvas 矩陣還原！避免殘留翻轉狀態干擾後續動畫
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         
         canvas.style.display = 'block';
         document.getElementById('viewer-ui').style.opacity = '0';
@@ -351,7 +354,6 @@
                     }
                     const avgLuminance = totalLuminance / 256;
                     
-                    // 光感遮擋觸發閾值 (小於 20 代表前置鏡頭被完全蓋住)
                     if (avgLuminance < 20) {
                         isMagicExecuted = true;
                         clearInterval(brightnessCheckInterval);
@@ -381,14 +383,16 @@
                 let opacity = 0;
                 const animateRendering = () => {
                     opacity += 0.002; 
+                    
+                    // 🌟關鍵修復：每一影格都強制清除任何殘留矩陣，確保底圖不發生二次翻轉
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(bgImg, 0, 0); // 繪製正向自拍照
+                    ctx.drawImage(bgImg, 0, 0); // 繪製完全不跳動、不翻轉的正向自拍照
                     
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    // 🌟 修正 2：撲克牌寬度精準對齊瞄準框比例(65%)，再內縮 95% 安全邊界，大小不再因前置鏡頭出錯
                     const cardWidth = canvas.width * 0.65 * 0.95; 
                     const cardHeight = cardWidth * 1.42; 
                     const targetX = (canvas.width - cardWidth) / 2;
@@ -410,12 +414,15 @@
                 let opacity = 0;
                 const animateFallback = () => {
                     opacity += 0.005;
+                    
+                    // 🌟關鍵修復：備用文字渲染影格也同步加入強置重設
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(bgImg, 0, 0);
+                    
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 🌟 修正 2：備用文字渲染機制同步修復尺寸比例
                     const cardWidth = canvas.width * 0.65 * 0.95;
                     const cardHeight = cardWidth * 1.42;
                     const targetX = (canvas.width - cardWidth) / 2;
@@ -450,6 +457,9 @@
     }
 
     function finalizeAndInjectNativeImage() {
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // 保險起見，輸出前再次確認矩陣清空
+        
         const finalDataURL = canvas.toDataURL('image/jpeg', 0.95);
         const nativeImg = document.createElement('img');
         nativeImg.src = finalDataURL;
