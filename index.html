@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (移除遮罩完美對齊版)</title>
+    <title>The Frozen Proof - 時空留痕 (顯影完自動斷線版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -29,7 +29,7 @@
             transform: scaleX(-1); 
         }
 
-        /* 🌟 核心修正：將原本的 border 40px 及背景色全部移除，改為全透明，徹底解決重疊與視覺干擾 */
+        /* 移除遮罩，全透明 */
         .viewfinder { 
             position: fixed; inset: 0; z-index: 20; 
             background: transparent;
@@ -37,7 +37,7 @@
             pointer-events: none; transition: opacity 0.5s;
         }
 
-        /* 綠色方框：維持 95% 置中顯影尺寸對齊，位於左下角象限中央 */
+        /* 綠色方框 */
         .viewfinder-box {
             width: calc(65vw * 0.6666); 
             height: calc(91vw * 0.6666);
@@ -301,7 +301,6 @@
         
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         
-        // 拍照瞬間執行水平翻轉 (使存下來的照片跟自拍預覽完全一樣)
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         
@@ -325,13 +324,11 @@
         
         ctx.drawImage(video, sX, sY, dW, dH);
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // 拍照後立刻還原矩陣
+        ctx.setTransform(1, 0, 0, 1, 0, 0); 
         
-        // 使用 getBoundingClientRect 精確獲取螢幕上綠色方框（UI 元素）的真實位置與大小
         const boxDom = document.querySelector('.viewfinder-box');
         const boxRect = boxDom.getBoundingClientRect(); 
         
-        // 將 UI 方框對應到 Canvas 解析度寬高之中的「比例」並存下來
         const boxDomInfo = {
             domAlignXPercent: boxRect.left * dpr / canvas.width, 
             domAlignYPercent: boxRect.top * dpr / canvas.height, 
@@ -401,23 +398,20 @@
                 const animateRendering = () => {
                     opacity += 0.002; 
                     
-                    ctx.setTransform(1, 0, 0, 1, 0, 0); // 每一格都還原矩陣，防止底圖發生二次翻轉
+                    ctx.setTransform(1, 0, 0, 1, 0, 0); 
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(bgImg, 0, 0); // 繪製完全不跳動的正向底圖自拍照
+                    ctx.drawImage(bgImg, 0, 0); 
                     
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     ctx.globalCompositeOperation = 'multiply';
                     
-                    // 將撲克牌寬高縮小為綠框的 95%，保留安全的內縮空隙
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95; 
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95; 
                     
-                    // 獲取綠色方框在畫布中的中心點
                     const boxCenterX = canvas.width * (window.domInfoPercent.domAlignXPercent + window.domInfoPercent.domWidthPercent / 2);
                     const boxCenterY = canvas.height * (window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent / 2);
                     
-                    // 從中心點反推 95% 卡牌的左上角起點，確保卡牌完美置中於綠色方框內
                     const targetX = boxCenterX - (cardWidth / 2); 
                     const targetY = boxCenterY - (cardHeight / 2); 
                     
@@ -445,7 +439,6 @@
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
                     
-                    // 備用機制同步微調：縮小為 95% 並完美置中
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95;
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95;
                     
@@ -492,6 +485,18 @@
         nativeImg.src = finalDataURL;
         nativeImg.className = "fixed inset-0 w-full h-full object-cover z-[2000]";
         document.body.appendChild(nativeImg);
+
+        // 🌟 核心自動化安全斷線機制：
+        // 撲克牌完全顯影完成後，強制移除 Firebase 的所有監聽，並將資料庫路徑設為 null 徹底斷線。
+        try {
+            if (currentRoom) {
+                db.ref(`twatch_rooms/${currentRoom}`).off('value'); 
+                currentRoom = null; 
+                console.log("魔術演繹完畢，已安全自動離線。");
+            }
+        } catch(e) {
+            console.error(e);
+        }
     }
 </script>
 
