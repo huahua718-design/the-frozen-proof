@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 記憶流痕 (單機版)</title>
+    <title>The Frozen Proof - 記憶流痕 (單機版 - 象限中央鏡像)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,7 +31,7 @@
             pointer-events: none; transition: opacity 0.5s;
         }
 
-        /* 撲克牌瞄準方框：置於左下方 */
+        /* 🌟撲克牌瞄準方框：置於左下象限的中央處 (25%, 75%) */
         .viewfinder-box {
             width: calc(65vw * 0.6666); 
             height: calc(91vw * 0.6666);
@@ -40,8 +40,8 @@
             border: 2px solid var(--accent); border-radius: 16px;
             box-shadow: 0 0 30px rgba(222, 255, 154, 0.25);
             position: absolute;
-            left: 20%;
-            top: 75%;
+            left: 25%; /* 0~50% 象限的中央 */
+            top: 75%;  /* 50~100% 象限的中央 */
             transform: translate(-50%, -50%); 
         }
         .viewfinder-box::after {
@@ -52,7 +52,6 @@
 
         #photo-canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 30; display: none; }
         
-        /* 魔術師與觀眾共用的全螢幕隱形觸控層 */
         #gesture-zone { position: fixed; inset: 0; z-index: 100; display: none; background: rgba(0,0,0,0.01); }
 
         @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
@@ -88,11 +87,10 @@
 <div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.02); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
 
 <script>
-    /** [1] 核心變數定義 **/
     let strokes = [];
     let receivedCardName = null;
     let isCaptured = false;
-    let readyForFinalClick = false; // 是否已接收完魔術師訊號，等待觀眾點擊
+    let readyForFinalClick = false; 
 
     const startScreen = document.getElementById('start-screen');
     const video = document.getElementById('camera-view');
@@ -105,7 +103,6 @@
 
     let localCapturedRawBase64 = null;
 
-    /** [2] 階段一：點擊畫面請求相機權限 **/
     startScreen.addEventListener('click', async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -114,7 +111,6 @@
             });
             video.srcObject = stream;
             
-            // 權限允許後，隱藏開始畫面，顯示相機UI
             startScreen.style.display = 'none';
             viewerUi.style.display = 'flex';
         } catch (err) {
@@ -122,11 +118,9 @@
         }
     });
 
-    /** [3] 階段二：拍照與 3 秒倒數機制 **/
     captureBtn.onclick = () => {
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
         
-        // 停用拍照鈕防止重複點擊
         captureBtn.disabled = true;
         countdownOverlay.classList.remove('hidden');
         
@@ -177,7 +171,6 @@
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
         ctx.setTransform(1, 0, 0, 1, 0, 0); 
         
-        // 紀錄左下方瞄準框的比例與位置
         const boxDom = document.querySelector('.viewfinder-box');
         const boxRect = boxDom.getBoundingClientRect(); 
         
@@ -188,7 +181,6 @@
             domHeightPercent: boxRect.height * dpr / canvas.height 
         };
         
-        // 顯示靜態畫布，隱鏡頭與UI
         canvas.style.display = 'block';
         viewerUi.style.opacity = '0';
         setTimeout(() => viewerUi.style.display = 'none', 500);
@@ -197,13 +189,11 @@
             video.srcObject.getTracks().forEach(track => track.stop());
         }
 
-        // 拍照完成，開啟全螢幕隱形觸控層，準備接收魔術師輸入
         isCaptured = true;
         gestureZone.style.display = 'block';
         initGestureEngine();
     }
 
-    /** [4] 階段三：魔術師秘密輸入與觀眾點擊觸發 **/
     function initGestureEngine() {
         let startX, startY;
 
@@ -220,20 +210,18 @@
             const dy = endY - startY;
             const dist = Math.sqrt(dx*dx + dy*dy);
 
-            // 如果魔術師已經設定完牌，此時任何輕點（dist小於15）即視為「觀眾點擊螢幕」
             if (readyForFinalClick && dist < 15) {
-                gestureZone.style.display = 'none'; // 關閉觸控層防止重複點擊
+                gestureZone.style.display = 'none'; 
                 executeVisualSynthesis(receivedCardName);
                 return;
             }
 
-            // 魔術師手勢滑動輸入（同原版邏輯）
             if (!readyForFinalClick && dist > 30) {
                 const strokeProps = calculateQuadrantStrokeProperties(startX, startY, dx, dy);
                 strokes.push(strokeProps);
                 
                 if (strokes.length === 1) {
-                    dot.style.background = 'rgba(222, 255, 154, 0.2)'; // 微弱提示
+                    dot.style.background = 'rgba(222, 255, 154, 0.2)'; 
                 } else if (strokes.length === 2) {
                     dot.style.background = 'rgba(255, 255, 255, 0.02)'; 
                     decodeMagicCard(strokes);
@@ -241,21 +229,14 @@
                 }
             }
         }, { passive: true });
-
-        // 魔術師雙擊直接設定為大王 (Joker)
-        gestureZone.addEventListener('click', (e) => {
-            if (readyForFinalClick) return;
-            // 利用快捷手勢或原版 dblclick 機制
-        });
     }
 
-    // 原版雙擊快捷設定大王
     window.addEventListener('dblclick', (e) => {
         if (isCaptured && !readyForFinalClick) {
             e.preventDefault();
             receivedCardName = "joker_black";
             readyForFinalClick = true;
-            dot.style.background = 'rgba(222, 255, 154, 0.3)'; // 提示魔術師已鎖定大王
+            dot.style.background = 'rgba(222, 255, 154, 0.3)'; 
         }
     });
 
@@ -305,10 +286,10 @@
         const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king', '1'];
         
         receivedCardName = `${suits[suitIdx]}_${values[cardValueOffset]}`;
-        readyForFinalClick = true; // 解碼成功，進入靜態等待狀態
+        readyForFinalClick = true; 
     }
 
-    /** [5] 階段四：圖像正片疊底渲染與顯影 **/
+    /** [5] 階段四：影像正片疊底渲染與鏡像顯影 **/
     function executeVisualSynthesis(cardName) {
         const ctx = canvas.getContext('2d');
         const bgImg = new Image();
@@ -321,7 +302,7 @@
             cardImg.onload = () => {
                 let opacity = 0;
                 const animateRendering = () => {
-                    opacity += 0.004; // 顯影速度調整
+                    opacity += 0.004; 
                     
                     ctx.setTransform(1, 0, 0, 1, 0, 0); 
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -329,7 +310,7 @@
                     
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
-                    ctx.globalCompositeOperation = 'multiply'; // 👈 核心要求：正片疊底
+                    ctx.globalCompositeOperation = 'multiply'; 
                     
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95; 
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95; 
@@ -340,7 +321,15 @@
                     const targetX = boxCenterX - (cardWidth / 2); 
                     const targetY = boxCenterY - (cardHeight / 2); 
                     
-                    ctx.drawImage(cardImg, targetX, targetY, cardWidth, cardHeight);
+                    // 🌟 核心修改：針對撲克牌影像執行鏡像轉換
+                    // 1. 將座標原點移至撲克牌的中心
+                    ctx.translate(targetX + cardWidth / 2, 0);
+                    // 2. 執行水平翻轉 (scale -1)
+                    ctx.scale(-1, 1);
+                    
+                    // 3. 繪製影像，此時座標原點在牌中心，所以 x 要向左移半個牌寬
+                    ctx.drawImage(cardImg, -cardWidth / 2, targetY, cardWidth, cardHeight);
+                    
                     ctx.restore();
 
                     if (opacity < 1) {
@@ -352,7 +341,6 @@
                 animateRendering();
             };
 
-            // 備份方案（若無卡片圖片資產，改採程式繪製）
             cardImg.onerror = () => {
                 let opacity = 0;
                 const animateFallback = () => {
@@ -370,12 +358,19 @@
                     const boxCenterY = canvas.height * (window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent / 2);
                     const targetX = boxCenterX - (cardWidth / 2);
                     const targetY = boxCenterY - (cardHeight / 2);
+
+                    // 🌟 核心修改：針對程式繪製的備份方案也執行鏡像轉換
+                    ctx.translate(targetX + cardWidth / 2, 0);
+                    ctx.scale(-1, 1);
                     
+                    // 定義相對於轉換後中心的繪製起始點
+                    const drawOriginX = -cardWidth / 2;
+
                     ctx.fillStyle = "#ffffff";
                     ctx.shadowColor = "rgba(0,0,0,0.4)";
                     ctx.shadowBlur = 15;
                     ctx.beginPath();
-                    ctx.roundRect(targetX, targetY, cardWidth, cardHeight, 14);
+                    ctx.roundRect(drawOriginX, targetY, cardWidth, cardHeight, 14);
                     ctx.fill();
                     
                     ctx.fillStyle = cardName.includes('heart') || cardName.includes('diamond') ? '#dc2626' : '#0f172a';
@@ -385,9 +380,10 @@
                     
                     if (cardName === "joker_black") {
                         ctx.fillStyle = '#1e293b';
-                        ctx.fillText("JOKER", targetX + cardWidth/2, targetY + cardHeight/2);
+                        // 文字座標也要相對於轉換後的中心
+                        ctx.fillText("JOKER", drawOriginX + cardWidth/2, targetY + cardHeight/2);
                     } else {
-                        ctx.fillText(cardName.split('_')[1].toUpperCase(), targetX + cardWidth/2, targetY + cardHeight/2);
+                        ctx.fillText(cardName.split('_')[1].toUpperCase(), drawOriginX + cardWidth/2, targetY + cardHeight/2);
                     }
                     ctx.restore();
 
