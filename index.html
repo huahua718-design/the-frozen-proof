@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>The Frozen Proof - 時空留痕 (極簡隱蔽版)</title>
+    <title>The Frozen Proof - 記憶流痕 (單機版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -16,20 +14,16 @@
         :root { --accent: #deff9a; --bg: #000; }
         body { font-family: 'Urbanist', sans-serif; background-color: var(--bg); color: #fff; margin: 0; overflow: hidden; height: 100vh; }
         
-        /* 鎖定視窗，避免 iOS 瀏覽器橡皮筋回彈干擾手勢 */
         html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
 
-        /* 魔術按鈕樣式 */
         .btn-magic { background: rgba(255,255,255,0.05); border: 1px solid var(--accent); color: var(--accent); padding: 12px 24px; border-radius: 50px; font-weight: 500; transition: all 0.3s; }
         .btn-magic:active { transform: scale(0.95); background: var(--accent); color: #000; }
 
-        /* 全螢幕前置相機預覽 */
         #camera-view { 
             position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; 
             transform: scaleX(-1); 
         }
 
-        /* 移除遮罩，全透明 */
         .viewfinder { 
             position: fixed; inset: 0; z-index: 20; 
             background: transparent;
@@ -37,7 +31,7 @@
             pointer-events: none; transition: opacity 0.5s;
         }
 
-        /* 綠色方框 */
+        /* 撲克牌瞄準方框：置於左下方 */
         .viewfinder-box {
             width: calc(65vw * 0.6666); 
             height: calc(91vw * 0.6666);
@@ -46,7 +40,7 @@
             border: 2px solid var(--accent); border-radius: 16px;
             box-shadow: 0 0 30px rgba(222, 255, 154, 0.25);
             position: absolute;
-            left: 25%;
+            left: 20%;
             top: 75%;
             transform: translate(-50%, -50%); 
         }
@@ -56,258 +50,100 @@
             animation: pulse 1.8s infinite;
         }
 
-        /* 靜態照片渲染畫布 */
         #photo-canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 30; display: none; }
         
-        /* 魔術師全螢幕隱形觸控手勢層 */
+        /* 魔術師與觀眾共用的全螢幕隱形觸控層 */
         #gesture-zone { position: fixed; inset: 0; z-index: 100; display: none; background: rgba(0,0,0,0.01); }
-
-        /* 魔術師大廳 UI */
-        #master-ui { 
-            position: fixed; inset: 0; z-index: 110; 
-            background: #000; display: flex; flex-direction: column; 
-            align-items: center; justify-content: center; padding: 40px; text-align: center;
-            cursor: pointer;
-        }
 
         @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
     </style>
 </head>
 <body>
 
+<div id="start-screen" class="fixed inset-0 bg-black z-[5000] flex flex-col items-center justify-center cursor-pointer select-none">
+    <h1 class="text-3xl font-light tracking-[0.5em] text-white/90 mb-2">記憶流痕</h1>
+    <p class="text-xs tracking-widest text-white/30 font-light">TOUCH TO START</p>
+</div>
+
 <video id="camera-view" autoplay playsinline muted></video>
 
 <div id="viewer-ui" class="viewfinder" style="display:none;">
     <div class="viewfinder-box"></div>
     
-    <div class="fixed bottom-24 left-3/4 transform -translate-x-1/2 pointer-events-auto">
+    <div class="fixed bottom-24 right-12 pointer-events-auto">
         <button id="capture-btn" class="btn-magic text-xl px-6 py-4 shadow-xl">
             <i class="fa-solid fa-camera"></i> 
         </button>
     </div>
 </div>
 
-<canvas id="photo-canvas"></canvas>
-
-<div id="master-ui" style="display:none;">
-    <div id="qrcode-container" class="bg-white p-5 rounded-3xl shadow-2xl">
-        <img id="qrcode-img" src="" alt="QR Code" class="w-60 h-60">
-    </div>
+<div id="countdown-overlay" class="fixed inset-0 z-40 flex items-center justify-center bg-black/20 text-8xl font-bold select-none pointer-events-none hidden" style="color: var(--accent);">
+    3
 </div>
+
+<canvas id="photo-canvas"></canvas>
 
 <div id="gesture-zone"></div>
 
-<div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.05); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
+<div id="status-dot" style="position: fixed; bottom: 20px; left: 20px; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.02); z-index: 120; pointer-events: none; transition: background 0.3s;"></div>
 
 <script>
-    /** [1] FIREBASE 環境設定 **/
-    const firebaseConfig = {
-        apiKey: "AIzaSyCjTKS43McbUswz3afjcQpPjamhoMb-X9c",
-        authDomain: "magic-card-app-2f24f.firebaseapp.com",
-        databaseURL: "https://magic-card-app-2f24f-default-rtdb.asia-southeast1.firebasedatabase.app",
-        projectId: "magic-card-app-2f24f",
-        storageBucket: "magic-card-app-2f24f.firebasestorage.app",
-        messagingSenderId: "900697689478",
-        appId: "1:900697689478:web:38a5aba747e96a7fcb3007"
-    };
-    
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
-
-    /** [2] 系統路由與變數定義 **/
-    const urlParams = new URLSearchParams(window.location.search);
-    const mode = urlParams.get('mode'); 
-    const roomFromUrl = urlParams.get('room');
-    let currentRoom = roomFromUrl || "";
-    let isMaster = (mode === 'master');
-
+    /** [1] 核心變數定義 **/
     let strokes = [];
-
-    window.onload = () => {
-        if (isMaster) {
-            setupMasterMode();
-        } else if (currentRoom) {
-            setupViewerMode(currentRoom);
-        } else {
-            document.body.innerHTML = `<div class="flex h-screen items-center justify-center p-6 text-center text-white/70">
-                <div><i class="fa-solid fa-triangle-exclamation text-4xl text-accent mb-4"></i><br>請使用魔術師生成的 QR Code 掃描開局</div>
-            </div>`;
-        }
-    };
-
-    /** [3] 魔術師控制端邏輯 (Master) **/
-    function setupMasterMode() {
-        const ui = document.getElementById('master-ui');
-        
-        ui.style.display = 'flex';
-        document.getElementById('gesture-zone').style.display = 'block';
-        
-        // 背景依然保持隨機產生 4 位數純數字房間號碼，確保不重複
-        currentRoom = Math.floor(1000 + Math.random() * 9000).toString(); 
-        
-        // 自動產生帶有隨機房號參數的觀眾端網址
-        const viewerUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoom}`;
-        
-        // 隨之產生對應的全新 QR Code 圖像
-        document.getElementById('qrcode-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(viewerUrl)}`;
-
-        // 初始化通訊狀態為開啟
-        db.ref(`twatch_rooms/${currentRoom}/status`).update({ readAllowed: true });
-
-        ui.addEventListener('click', (e) => {
-            ui.style.display = 'none';
-        });
-
-        window.addEventListener('dblclick', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            sendPayloadToFirebase("joker_black");
-        });
-
-        initGestureEngine();
-    }
-
-    function initGestureEngine() {
-        const zone = document.getElementById('gesture-zone');
-        const dot = document.getElementById('status-dot');
-        let startX, startY;
-
-        zone.addEventListener('touchstart', (e) => {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-        }, { passive: true });
-
-        zone.addEventListener('touchend', (e) => {
-            const endX = e.changedTouches[0].clientX;
-            const endY = e.changedTouches[0].clientY;
-            
-            const dx = endX - startX;
-            const dy = endY - startY;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-
-            if (dist > 30) {
-                const strokeProps = calculateQuadrantStrokeProperties(startX, startY, dx, dy);
-                strokes.push(strokeProps);
-                
-                if (strokes.length === 1) {
-                    dot.style.background = 'rgba(222, 255, 154, 0.4)'; 
-                } else if (strokes.length === 2) {
-                    dot.style.background = 'rgba(255, 255, 255, 0.05)'; 
-                    decodeAndSendMagic(strokes);
-                    strokes = []; 
-                }
-            }
-        }, { passive: true });
-    }
-
-    function calculateQuadrantStrokeProperties(startX, startY, dx, dy) {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        
-        let startQ = 1;
-        if (startX < w / 2 && startY < h / 2) startQ = 1;
-        else if (startX >= w / 2 && startY < h / 2) startQ = 2;
-        else if (startX >= w / 2 && startY >= h / 2) startQ = 3;
-        else if (startX < w / 2 && startY >= h / 2) startQ = 4;
-
-        let edge = 0; 
-        let dir = 1;  
-        
-        const absX = Math.abs(dx);
-        const absY = Math.abs(dy);
-
-        if (startQ === 1) {
-            if (absX > absY) { edge = 1; dir = (dx > 0) ? 1 : -1; } 
-            else             { edge = 0; dir = (dy > 0) ? -1 : 1; } 
-        } else if (startQ === 2) {
-            if (absX > absY) { edge = 1; dir = (dx > 0) ? 1 : -1; } 
-            else             { edge = 2; dir = (dy > 0) ? 1 : -1; } 
-        } else if (startQ === 3) {
-            if (absX > absY) { edge = 3; dir = (dx < 0) ? 1 : -1; } 
-            else             { edge = 2; dir = (dy > 0) ? 1 : -1; } 
-        } else if (startQ === 4) {
-            if (absX > absY) { edge = 3; dir = (dx < 0) ? 1 : -1; } 
-            else             { edge = 0; dir = (dy < 0) ? 1 : -1; } 
-        }
-        
-        return { edge, dir };
-    }
-
-    function decodeAndSendMagic(s) {
-        let suitIdx = s[0].edge; 
-        let isSecondHalf = (s[0].dir === -1); 
-        let cardValueOffset = 0;
-        
-        if (s[1].edge === s[0].edge) {
-            cardValueOffset = 12; 
-        } else {
-            const relQuadrant = (s[1].edge - s[0].edge + 4) % 4; 
-            cardValueOffset = (isSecondHalf ? 6 : 0) + (relQuadrant - 1) * 2 + (s[1].dir === 1 ? 0 : 1);
-        }
-        
-        const cardCode = generateCardCode(suitIdx, cardValueOffset);
-        sendPayloadToFirebase(cardCode);
-    }
-
-    function generateCardCode(suit, valueIdx) {
-        const suits = ['club', 'diamond', 'heart', 'spade'];
-        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king', '1'];
-        return `${suits[suit]}_${values[valueIdx]}`;
-    }
-
-    function sendPayloadToFirebase(cardName) {
-        db.ref(`twatch_rooms/${currentRoom}`).update({
-            forcedCard: cardName,
-            timestamp: Date.now()
-        });
-    }
-
-
-    /** [4] 觀眾端相機與靜態圖像合成邏輯 (Viewer) **/
-    const video = document.getElementById('camera-view');
-    const canvas = document.getElementById('photo-canvas');
-    const captureBtn = document.getElementById('capture-btn');
-    
-    let localCapturedRawBase64 = null;
-    let isMagicExecuted = false;
-    let isCaptured = false;
     let receivedCardName = null;
-    let brightnessCheckInterval = null;
+    let isCaptured = false;
+    let readyForFinalClick = false; // 是否已接收完魔術師訊號，等待觀眾點擊
 
-    async function setupViewerMode(roomId) {
-        document.getElementById('viewer-ui').style.display = 'flex';
-        
+    const startScreen = document.getElementById('start-screen');
+    const video = document.getElementById('camera-view');
+    const viewerUi = document.getElementById('viewer-ui');
+    const captureBtn = document.getElementById('capture-btn');
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    const canvas = document.getElementById('photo-canvas');
+    const gestureZone = document.getElementById('gesture-zone');
+    const dot = document.getElementById('status-dot');
+
+    let localCapturedRawBase64 = null;
+
+    /** [2] 階段一：點擊畫面請求相機權限 **/
+    startScreen.addEventListener('click', async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, 
                 audio: false 
             });
             video.srcObject = stream;
+            
+            // 權限允許後，隱藏開始畫面，顯示相機UI
+            startScreen.style.display = 'none';
+            viewerUi.style.display = 'flex';
         } catch (err) {
-            alert("請允許網頁相機存取權限，否則無法與心靈感應連線。");
+            alert("此魔術需要開啟前置鏡頭權限方能進行。");
         }
+    });
 
-        db.ref(`twatch_rooms/${roomId}`).on('value', (snapshot) => {
-            const data = snapshot.val();
-            if (!data) return;
-
-            if (data.status && data.status.readAllowed === false) {
-                db.ref(`twatch_rooms/${roomId}`).off('value'); 
-                receivedCardName = null;
-                return;
+    /** [3] 階段二：拍照與 3 秒倒數機制 **/
+    captureBtn.onclick = () => {
+        if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
+        
+        // 停用拍照鈕防止重複點擊
+        captureBtn.disabled = true;
+        countdownOverlay.classList.remove('hidden');
+        
+        let count = 3;
+        countdownOverlay.innerText = count;
+        
+        const timer = setInterval(() => {
+            count--;
+            if (count > 0) {
+                countdownOverlay.innerText = count;
+            } else {
+                clearInterval(timer);
+                countdownOverlay.classList.add('hidden');
+                executeCameraCapture();
             }
-
-            if (data.forcedCard) {
-                receivedCardName = data.forcedCard;
-                checkTriggerCondition(); 
-            }
-        });
-
-        captureBtn.onclick = () => {
-            if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
-            executeCameraCapture();
-        };
-    }
+        }, 1000);
+    };
 
     function executeCameraCapture() {
         const dpr = window.devicePixelRatio || 1;
@@ -341,64 +177,138 @@
         localCapturedRawBase64 = canvas.toDataURL('image/jpeg', 0.95);
         ctx.setTransform(1, 0, 0, 1, 0, 0); 
         
+        // 紀錄左下方瞄準框的比例與位置
         const boxDom = document.querySelector('.viewfinder-box');
         const boxRect = boxDom.getBoundingClientRect(); 
         
-        const boxDomInfo = {
+        window.domInfoPercent = {
             domAlignXPercent: boxRect.left * dpr / canvas.width, 
             domAlignYPercent: boxRect.top * dpr / canvas.height, 
             domWidthPercent: boxRect.width * dpr / canvas.width, 
             domHeightPercent: boxRect.height * dpr / canvas.height 
-        }
-        window.domInfoPercent = boxDomInfo; 
+        };
         
+        // 顯示靜態畫布，隱鏡頭與UI
         canvas.style.display = 'block';
-        document.getElementById('viewer-ui').style.opacity = '0';
-        setTimeout(() => document.getElementById('viewer-ui').style.display = 'none', 500);
-
-        isCaptured = true;
-        checkTriggerCondition(); 
-    }
-
-    function checkTriggerCondition() {
-        if (isCaptured && receivedCardName && !isMagicExecuted && !brightnessCheckInterval) {
-            
-            const lumaCanvas = document.createElement('canvas');
-            lumaCanvas.width = 16;
-            lumaCanvas.height = 16;
-            const lumaCtx = lumaCanvas.getContext('2d');
-
-            brightnessCheckInterval = setInterval(() => {
-                if (isMagicExecuted) {
-                    clearInterval(brightnessCheckInterval);
-                    return;
-                }
-                try {
-                    lumaCtx.drawImage(video, 0, 0, 16, 16);
-                    const imgData = lumaCtx.getImageData(0, 0, 16, 16).data;
-                    let totalLuminance = 0;
-                    
-                    for (let i = 0; i < imgData.length; i += 4) {
-                        totalLuminance += (0.2126 * imgData[i] + 0.7152 * imgData[i+1] + 0.0722 * imgData[i+2]);
-                    }
-                    const avgLuminance = totalLuminance / 256;
-                    
-                    if (avgLuminance < 20) {
-                        isMagicExecuted = true;
-                        clearInterval(brightnessCheckInterval);
-                        
-                        if (video.srcObject) {
-                            video.srcObject.getTracks().forEach(track => track.stop());
-                        }
-                        executeVisualSynthesis(receivedCardName);
-                    }
-                } catch (e) {
-                    console.error("光感監測異常:", e);
-                }
-            }, 200); 
+        viewerUi.style.opacity = '0';
+        setTimeout(() => viewerUi.style.display = 'none', 500);
+        
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
         }
+
+        // 拍照完成，開啟全螢幕隱形觸控層，準備接收魔術師輸入
+        isCaptured = true;
+        gestureZone.style.display = 'block';
+        initGestureEngine();
     }
 
+    /** [4] 階段三：魔術師秘密輸入與觀眾點擊觸發 **/
+    function initGestureEngine() {
+        let startX, startY;
+
+        gestureZone.addEventListener('touchstart', (e) => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+
+        gestureZone.addEventListener('touchend', (e) => {
+            const endX = e.changedTouches[0].clientX;
+            const endY = e.changedTouches[0].clientY;
+            
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            // 如果魔術師已經設定完牌，此時任何輕點（dist小於15）即視為「觀眾點擊螢幕」
+            if (readyForFinalClick && dist < 15) {
+                gestureZone.style.display = 'none'; // 關閉觸控層防止重複點擊
+                executeVisualSynthesis(receivedCardName);
+                return;
+            }
+
+            // 魔術師手勢滑動輸入（同原版邏輯）
+            if (!readyForFinalClick && dist > 30) {
+                const strokeProps = calculateQuadrantStrokeProperties(startX, startY, dx, dy);
+                strokes.push(strokeProps);
+                
+                if (strokes.length === 1) {
+                    dot.style.background = 'rgba(222, 255, 154, 0.2)'; // 微弱提示
+                } else if (strokes.length === 2) {
+                    dot.style.background = 'rgba(255, 255, 255, 0.02)'; 
+                    decodeMagicCard(strokes);
+                    strokes = []; 
+                }
+            }
+        }, { passive: true });
+
+        // 魔術師雙擊直接設定為大王 (Joker)
+        gestureZone.addEventListener('click', (e) => {
+            if (readyForFinalClick) return;
+            // 利用快捷手勢或原版 dblclick 機制
+        });
+    }
+
+    // 原版雙擊快捷設定大王
+    window.addEventListener('dblclick', (e) => {
+        if (isCaptured && !readyForFinalClick) {
+            e.preventDefault();
+            receivedCardName = "joker_black";
+            readyForFinalClick = true;
+            dot.style.background = 'rgba(222, 255, 154, 0.3)'; // 提示魔術師已鎖定大王
+        }
+    });
+
+    function calculateQuadrantStrokeProperties(startX, startY, dx, dy) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        
+        let startQ = 1;
+        if (startX < w / 2 && startY < h / 2) startQ = 1;
+        else if (startX >= w / 2 && startY < h / 2) startQ = 2;
+        else if (startX >= w / 2 && startY >= h / 2) startQ = 3;
+        else if (startX < w / 2 && startY >= h / 2) startQ = 4;
+
+        let edge = 0; let dir = 1;  
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+
+        if (startQ === 1) {
+            if (absX > absY) { edge = 1; dir = (dx > 0) ? 1 : -1; } 
+            else             { edge = 0; dir = (dy > 0) ? -1 : 1; } 
+        } else if (startQ === 2) {
+            if (absX > absY) { edge = 1; dir = (dx > 0) ? 1 : -1; } 
+            else             { edge = 2; dir = (dy > 0) ? 1 : -1; } 
+        } else if (startQ === 3) {
+            if (absX > absY) { edge = 3; dir = (dx < 0) ? 1 : -1; } 
+            else             { edge = 2; dir = (dy > 0) ? 1 : -1; } 
+        } else if (startQ === 4) {
+            if (absX > absY) { edge = 3; dir = (dx < 0) ? 1 : -1; } 
+            else             { edge = 0; dir = (dy < 0) ? 1 : -1; } 
+        }
+        return { edge, dir };
+    }
+
+    function decodeMagicCard(s) {
+        let suitIdx = s[0].edge; 
+        let isSecondHalf = (s[0].dir === -1); 
+        let cardValueOffset = 0;
+        
+        if (s[1].edge === s[0].edge) {
+            cardValueOffset = 12; 
+        } else {
+            const relQuadrant = (s[1].edge - s[0].edge + 4) % 4; 
+            cardValueOffset = (isSecondHalf ? 6 : 0) + (relQuadrant - 1) * 2 + (s[1].dir === 1 ? 0 : 1);
+        }
+        
+        const suits = ['club', 'diamond', 'heart', 'spade'];
+        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king', '1'];
+        
+        receivedCardName = `${suits[suitIdx]}_${values[cardValueOffset]}`;
+        readyForFinalClick = true; // 解碼成功，進入靜態等待狀態
+    }
+
+    /** [5] 階段四：圖像正片疊底渲染與顯影 **/
     function executeVisualSynthesis(cardName) {
         const ctx = canvas.getContext('2d');
         const bgImg = new Image();
@@ -411,7 +321,7 @@
             cardImg.onload = () => {
                 let opacity = 0;
                 const animateRendering = () => {
-                    opacity += 0.002; 
+                    opacity += 0.004; // 顯影速度調整
                     
                     ctx.setTransform(1, 0, 0, 1, 0, 0); 
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -419,7 +329,7 @@
                     
                     ctx.save();
                     ctx.globalAlpha = Math.min(opacity, 1);
-                    ctx.globalCompositeOperation = 'multiply';
+                    ctx.globalCompositeOperation = 'multiply'; // 👈 核心要求：正片疊底
                     
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95; 
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95; 
@@ -436,17 +346,17 @@
                     if (opacity < 1) {
                         requestAnimationFrame(animateRendering);
                     } else {
-                        finalizeAndInjectNativeImage();
+                        finalizeImage();
                     }
                 };
                 animateRendering();
             };
 
+            // 備份方案（若無卡片圖片資產，改採程式繪製）
             cardImg.onerror = () => {
                 let opacity = 0;
                 const animateFallback = () => {
-                    opacity += 0.005;
-                    
+                    opacity += 0.01;
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(bgImg, 0, 0);
@@ -456,22 +366,20 @@
                     
                     const cardWidth = canvas.width * window.domInfoPercent.domWidthPercent * 0.95;
                     const cardHeight = canvas.height * window.domInfoPercent.domHeightPercent * 0.95;
-                    
                     const boxCenterX = canvas.width * (window.domInfoPercent.domAlignXPercent + window.domInfoPercent.domWidthPercent / 2);
                     const boxCenterY = canvas.height * (window.domInfoPercent.domAlignYPercent + window.domInfoPercent.domHeightPercent / 2);
-                    
                     const targetX = boxCenterX - (cardWidth / 2);
                     const targetY = boxCenterY - (cardHeight / 2);
                     
                     ctx.fillStyle = "#ffffff";
-                    ctx.shadowColor = "rgba(0,0,0,0.5)";
-                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = "rgba(0,0,0,0.4)";
+                    ctx.shadowBlur = 15;
                     ctx.beginPath();
                     ctx.roundRect(targetX, targetY, cardWidth, cardHeight, 14);
                     ctx.fill();
                     
                     ctx.fillStyle = cardName.includes('heart') || cardName.includes('diamond') ? '#dc2626' : '#0f172a';
-                    ctx.font = `bold ${cardWidth * 0.15}px Arial`;
+                    ctx.font = `bold ${cardWidth * 0.14}px Arial`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
                     
@@ -484,33 +392,19 @@
                     ctx.restore();
 
                     if (opacity < 1) { requestAnimationFrame(animateFallback); } 
-                    else { finalizeAndInjectNativeImage(); }
+                    else { finalizeImage(); }
                 };
                 animateFallback();
             };
         };
     }
 
-    function finalizeAndInjectNativeImage() {
-        const ctx = canvas.getContext('2d');
-        ctx.setTransform(1, 0, 0, 1, 0, 0); 
-        
+    function finalizeImage() {
         const finalDataURL = canvas.toDataURL('image/jpeg', 0.95);
         const nativeImg = document.createElement('img');
         nativeImg.src = finalDataURL;
         nativeImg.className = "fixed inset-0 w-full h-full object-cover z-[2000]";
         document.body.appendChild(nativeImg);
-
-        // 🌟 核心自動化安全斷線機制依然保留：
-        // 觀眾端完全顯影完畢後，強制解除監聽。魔術師不需要按任何按鈕，系統演完自動「過河拆橋」。
-        try {
-            if (currentRoom) {
-                db.ref(`twatch_rooms/${currentRoom}`).off('value'); 
-                currentRoom = null; 
-            }
-        } catch(e) {
-            console.error(e);
-        }
     }
 </script>
 
